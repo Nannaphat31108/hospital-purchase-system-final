@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div><h1 class="h3 mb-1">หน้าหลัก</h1><p class="text-muted mb-0">จัดการข้อมูลและสร้างเอกสารจัดซื้อ</p></div>
+  <a class="btn btn-primary" href="{{ url_for('main.purchase_form') }}">+ สร้างใบสั่งซื้อ</a>
+</div>
+<div class="row g-3 mb-4">
+  {% for label, value, link in [('บริษัทที่ใช้งาน',company_count,'main.companies'),('เวชภัณฑ์ที่ใช้งาน',item_count,'main.items'),('หน่วยที่ใช้งาน',unit_count,'main.units'),('ใบสั่งซื้อ',purchase_count,'main.purchases')] %}
+  <div class="col-md-3"><a class="text-decoration-none" href="{{ url_for(link) }}"><div class="card stat-card h-100"><div class="card-body"><div class="text-muted">{{ label }}</div><div class="display-6 fw-bold">{{ value }}</div></div></div></a></div>
+  {% endfor %}
+</div>
+<div class="card"><div class="card-header fw-bold">เอกสารล่าสุด</div><div class="table-responsive"><table class="table mb-0"><thead><tr><th>เลขที่</th><th>วันที่</th><th>บริษัท</th><th class="text-end">ยอดรวม</th><th></th></tr></thead><tbody>
+{% for p in recent %}<tr><td>{{ p.po_number }}</td><td>{{ p.document_date.strftime('%d/%m/%Y') }}</td><td>{{ p.company.name }}</td><td class="text-end">{{ p.total_amount|money }}</td><td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('main.purchase_detail',purchase_id=p.id) }}">เปิด</a></td></tr>{% else %}<tr><td colspan="5" class="text-center text-muted py-4">ยังไม่มีข้อมูล</td></tr>{% endfor %}
+</tbody></table></div></div>
+{% endblock %}

@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: hospital-purchase-system
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn run:app
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: hospital-purchase-db
+          property: connectionString
+databases:
+  - name: hospital-purchase-db
