@@ -14,7 +14,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt
 
-from .models import Company, Item, Purchase, PurchaseLine, Unit, db
+from .models import Company, DropdownOption, GovernmentProfile, Item, Purchase, PurchaseLine, Unit, db
 from .utils import baht_text, safe_filename, to_decimal
 
 main_bp = Blueprint("main", __name__)
@@ -174,6 +174,55 @@ def item_api(item_id):
     })
 
 
+# Master dropdown data
+@main_bp.route("/masters")
+def masters():
+    profiles = GovernmentProfile.query.order_by(GovernmentProfile.id).all()
+    options = DropdownOption.query.order_by(DropdownOption.category, DropdownOption.id).all()
+    return render_template("masters/list.html", profiles=profiles, options=options)
+
+
+@main_bp.route("/masters/profile/new", methods=["GET", "POST"])
+@main_bp.route("/masters/profile/<int:profile_id>/edit", methods=["GET", "POST"])
+def profile_form(profile_id=None):
+    profile = GovernmentProfile.query.get_or_404(profile_id) if profile_id else GovernmentProfile()
+    if request.method == "POST":
+        for field in ["name","department","letter_prefix","recipient","officer_name","officer_position","chief_name","chief_position","approver_name","approver_position","inspector1_name","inspector1_position","inspector2_name","inspector2_position","inspector3_name","inspector3_position","specifier_name","specifier_position","receipt1_name","receipt2_name","receipt3_name"]:
+            setattr(profile, field, request.form.get(field, "").strip())
+        if not profile_id:
+            db.session.add(profile)
+        db.session.commit()
+        flash("บันทึกข้อมูลราชการแล้ว", "success")
+        return redirect(url_for("main.masters"))
+    return render_template("masters/profile_form.html", profile=profile)
+
+
+@main_bp.route("/masters/option/new", methods=["GET", "POST"])
+@main_bp.route("/masters/option/<int:option_id>/edit", methods=["GET", "POST"])
+def option_form(option_id=None):
+    option = DropdownOption.query.get_or_404(option_id) if option_id else DropdownOption()
+    if request.method == "POST":
+        option.category = request.form.get("category", "").strip()
+        option.value = request.form.get("value", "").strip()
+        if not option.category or not option.value:
+            flash("กรุณากรอกหมวดและค่า", "danger")
+        else:
+            if not option_id:
+                db.session.add(option)
+            db.session.commit()
+            flash("บันทึกตัวเลือก Dropdown แล้ว", "success")
+            return redirect(url_for("main.masters"))
+    return render_template("masters/option_form.html", option=option)
+
+
+@main_bp.post("/masters/option/<int:option_id>/toggle")
+def option_toggle(option_id):
+    option = DropdownOption.query.get_or_404(option_id)
+    option.active = not option.active
+    db.session.commit()
+    return redirect(url_for("main.masters"))
+
+
 # Purchases
 @main_bp.route("/purchases")
 def purchases():
@@ -185,11 +234,16 @@ def purchases():
 
 
 def purchase_context(purchase):
+    categories = {}
+    for option in DropdownOption.query.filter_by(active=True).order_by(DropdownOption.category, DropdownOption.id).all():
+        categories.setdefault(option.category, []).append(option)
     return {
         "purchase": purchase,
         "companies": Company.query.filter_by(active=True).order_by(Company.name).all(),
         "items": Item.query.filter_by(active=True).order_by(Item.name).all(),
         "units": Unit.query.filter_by(active=True).order_by(Unit.name).all(),
+        "government_profiles": GovernmentProfile.query.filter_by(active=True).order_by(GovernmentProfile.name).all(),
+        "dropdowns": categories,
         "today": date.today().isoformat(),
     }
 
@@ -211,11 +265,16 @@ def purchase_form(purchase_id=None):
         except ValueError:
             purchase.document_date = date.today()
         purchase.company_id = request.form.get("company_id", type=int)
+        purchase.government_profile_id = request.form.get("government_profile_id", type=int)
+        purchase.procurement_type = request.form.get("procurement_type", "").strip() or "เวชภัณฑ์มิใช่ยา"
+        purchase.necessity_reason = request.form.get("necessity_reason", "").strip() or "ใช้ในการรักษาผู้ป่วย"
         purchase.project_number = request.form.get("project_number", "").strip()
         purchase.contract_control_number = request.form.get("contract_control_number", "").strip()
         purchase.delivery_days = request.form.get("delivery_days", type=int) or 30
         purchase.delivery_place = request.form.get("delivery_place", "").strip()
         purchase.budget_source = request.form.get("budget_source", "").strip()
+        purchase.budget_allocated = to_decimal(request.form.get("budget_allocated"))
+        purchase.budget_previously_used = to_decimal(request.form.get("budget_previously_used"))
         purchase.note = request.form.get("note", "").strip()
 
         lines = []
@@ -595,6 +654,85 @@ def _add_procurement_pack(doc, purchase):
     _paragraph(doc, f"ประกาศ ณ วันที่ {purchase.document_date.strftime('%d/%m/%Y')}", WD_ALIGN_PARAGRAPH.CENTER)
     _paragraph(doc, "(นายพิรุณ ปิตะหงษ์นันท์)\nผู้อำนวยการโรงพยาบาลสิงห์บุรี ปฏิบัติราชการแทน\nผู้ว่าราชการจังหวัดสิงห์บุรี", WD_ALIGN_PARAGRAPH.CENTER)
 
+def _replace_paragraph_text(paragraph, replacements):
+    original = paragraph.text
+    updated = original
+    for old, new in replacements:
+        updated = updated.replace(old, str(new))
+    if updated == original:
+        return
+    first = paragraph.runs[0] if paragraph.runs else paragraph.add_run()
+    for run in paragraph.runs:
+        run.text = ""
+    first.text = updated
+    _set_run_font(first, 16)
+
+
+def _build_exact_procurement_template(purchase):
+    template_path = Path(__file__).resolve().parent / "templates" / "word" / "purchase_master.docx"
+    doc = Document(str(template_path))
+    profile = purchase.government_profile or GovernmentProfile.query.filter_by(active=True).first() or GovernmentProfile()
+    total = purchase.total_amount
+    label = purchase.procurement_label
+    replacements = [
+        ("โรงพยาบาลสิงห์บุรี กลุ่มงานเภสัชกรรมโทร. ๐ ๓๖๕๒ ๒๕๐๘ ต่อ ๑๑๒๙", profile.department),
+        ("โรงพยาบาลสิงห์บุรี กลุ่มงานเภสัชกรรม โทร. ๐ ๓๖๕๒ ๒๕๐๘ ต่อ ๑๑๒๙", profile.department),
+        ("สห ๐๐๓๓.๒๐๕.๑๒/", profile.letter_prefix),
+        ("กรกฎาคม ๒๕๖๙", purchase.document_date.strftime("%d/%m/%Y")),
+        ("กรกฎาคม 2569", purchase.document_date.strftime("%d/%m/%Y")),
+        ("เวชภัณฑ์มิใช่ยา จำนวน 2 รายการ", label),
+        ("เวชภัณฑ์มิใช่ยา จำนวน2 รายการ", label),
+        ("บริษัท แปซิฟิค เฮลธ์แคร์ (ไทยแลนด์) จำกัด", purchase.company.name),
+        ("บริษัท แปซิฟิค เฮลธ์แคร์(ไทยแลนด์) จำกัด", purchase.company.name),
+        ("14,000.00", f"{total:,.2f}"),
+        ("หนึ่งหมื่นสี่พันบาทถ้วน", baht_text(total)),
+        ("หนึ่งหมื่นห้าพันหกร้อยบาทถ้วน", baht_text(total)),
+        ("18,678,700.00", f"{purchase.budget_allocated:,.2f}"),
+        ("9,727,520.57", f"{purchase.budget_previously_used:,.2f}"),
+        ("8,937,179.43", f"{purchase.budget_remaining:,.2f}"),
+        ("69079275357", purchase.project_number or "........................"),
+        ("690714258286", purchase.contract_control_number or "........................"),
+        ("PO-๖๙-๐๒๐๐802", purchase.po_number),
+        ("นางพิณนภา ศริพันธุ์", profile.officer_name),
+        ("นายชัชวาลย์ บุญญฤทธิ์", profile.chief_name),
+        ("นายพิรุณ ปิตะหงษ์นันท์", profile.approver_name),
+        ("นางสาวกัญญพัชร ธนกิจการค้า", profile.inspector1_name),
+        ("นางสาวชุลีพร สุขมี", profile.inspector2_name),
+        ("นางสาวกัญญาพัชร เลิศอนันตกูล", profile.inspector3_name),
+        ("นางสาวนลินี เครือทิวา", profile.specifier_name),
+        ("เงินบำรุงโรงพยาบาลสิงห์บุรี ปี ๒๕๖๙", purchase.budget_source),
+        ("ใช้ในการรักษาผู้ป่วย", purchase.necessity_reason),
+    ]
+    for paragraph in doc.paragraphs:
+        _replace_paragraph_text(paragraph, replacements)
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    _replace_paragraph_text(paragraph, replacements)
+    # Exact blue product table in the supplied master is table 4 (six product rows).
+    if len(doc.tables) > 4:
+        table = doc.tables[4]
+        for i in range(1, 7):
+            line = purchase.lines[i-1] if i <= len(purchase.lines) else None
+            values = [str(i), line.description if line else "", f"{line.quantity:g}  {line.unit.name}" if line else "", f"{line.unit_price:,.2f}" if line else "", f"{line.amount:,.2f}" if line else ""]
+            for j, value in enumerate(values):
+                _set_cell_text(table.cell(i, j), value, align=WD_ALIGN_PARAGRAPH.LEFT if j == 1 else WD_ALIGN_PARAGRAPH.CENTER)
+        _set_cell_text(table.cell(7,1), f"({baht_text(total)})", align=WD_ALIGN_PARAGRAPH.CENTER)
+        _set_cell_text(table.cell(7,4), f"{total:,.2f}", align=WD_ALIGN_PARAGRAPH.RIGHT)
+    # Keep the original document's text and page layout, but normalize variable runs to TH Sarabun New 16.
+    for paragraph in doc.paragraphs:
+        for run in paragraph.runs:
+            _set_run_font(run, 16)
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    for run in paragraph.runs:
+                        _set_run_font(run, 16)
+    return doc
+
+
 def _build_word(purchase, form_type):
     doc = Document()
     _configure_document(doc)
@@ -608,9 +746,9 @@ def _build_word(purchase, form_type):
     elif form_type == "integrity":
         _add_integrity_form(doc, purchase)
     elif form_type == "procurement_pack":
-        _add_procurement_pack(doc, purchase)
+        doc = _build_exact_procurement_template(purchase)
     elif form_type == "all":
-        _add_procurement_pack(doc, purchase)
+        doc = _build_exact_procurement_template(purchase)
         doc.add_page_break()
         _add_purchase_order(doc, purchase)
         doc.add_page_break()
