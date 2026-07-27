@@ -7,18 +7,45 @@ from .models import DropdownOption, GovernmentProfile, db
 from .routes import main_bp
 
 
+def _add_missing_columns(table_name: str, definitions: dict[str, str]) -> None:
+    """เพิ่มคอลัมน์ที่ขาด โดยไม่ลบข้อมูลเดิมในฐานข้อมูล"""
+    inspector = inspect(db.engine)
+
+    if table_name not in inspector.get_table_names():
+        return
+
+    existing_columns = {
+        column["name"]
+        for column in inspector.get_columns(table_name)
+    }
+
+    for column_name, column_definition in definitions.items():
+        if column_name in existing_columns:
+            continue
+
+        db.session.execute(
+            text(
+                f'ALTER TABLE "{table_name}" '
+                f'ADD COLUMN "{column_name}" {column_definition}'
+            )
+        )
+
+
 def create_app():
     app = Flask(__name__, instance_relative_config=True)
 
-    # สร้างโฟลเดอร์ instance สำหรับ SQLite ตอนรันในเครื่อง
     os.makedirs(app.instance_path, exist_ok=True)
 
-    default_db = "sqlite:///" + os.path.join(
+    sqlite_path = os.path.join(
         app.instance_path,
         "hospital_purchase.db",
     )
+    default_database_url = f"sqlite:///{sqlite_path}"
 
-    database_url = os.getenv("DATABASE_URL", default_db).strip()
+    database_url = os.getenv(
+        "DATABASE_URL",
+        default_database_url,
+    ).strip()
 
     # รองรับ URL รูปแบบเก่าของ PostgreSQL
     if database_url.startswith("postgres://"):
@@ -46,130 +73,147 @@ def create_app():
 
     with app.app_context():
         # สร้างเฉพาะตารางที่ยังไม่มี
-        # คำสั่งนี้ไม่ลบข้อมูลเดิม
         db.create_all()
 
-        try:
-            inspector = inspect(db.engine)
-            table_names = set(inspector.get_table_names())
+        # เพิ่มคอลัมน์ใหม่ในตารางบริษัท
+        _add_missing_columns(
+            "companies",
+            {
+                "business_type": (
+                    "VARCHAR(255) "
+                    "DEFAULT 'ขายส่ง,ขายปลีก,ให้บริการ'"
+                ),
+            },
+        )
 
-            # ---------------------------------------------------------
-            # Migration: government_profiles
-            # ต้องเพิ่ม name ก่อน GovernmentProfile.query.count()
-            # ---------------------------------------------------------
-            if "government_profiles" in table_names:
-                government_columns = {
-                    column["name"]
-                    for column in inspector.get_columns(
-                        "government_profiles"
-                    )
-                }
+        # เพิ่มคอลัมน์ใหม่ในตารางใบสั่งซื้อ
+        _add_missing_columns(
+            "purchases",
+            {
+                "government_profile_id": "INTEGER",
+                "procurement_type": (
+                    "VARCHAR(255) "
+                    "DEFAULT 'เวชภัณฑ์มิใช่ยา'"
+                ),
+                "necessity_reason": (
+                    "TEXT DEFAULT 'ใช้ในการรักษาผู้ป่วย'"
+                ),
+                "budget_allocated": (
+                    "NUMERIC(16,2) DEFAULT 0"
+                ),
+                "budget_previously_used": (
+                    "NUMERIC(16,2) DEFAULT 0"
+                ),
+            },
+        )
 
-                if "name" not in government_columns:
-                    db.session.execute(
-                        text(
-                            """
-                            ALTER TABLE government_profiles
-                            ADD COLUMN name VARCHAR(255)
-                            """
-                        )
-                    )
+        # เพิ่มคอลัมน์ข้อมูลราชการทั้งหมดที่ฐานข้อมูลเดิมยังไม่มี
+        _add_missing_columns(
+            "government_profiles",
+            {
+                "name": (
+                    "VARCHAR(255) "
+                    "DEFAULT 'ข้อมูลโรงพยาบาลสิงห์บุรี'"
+                ),
+                "department": (
+                    "TEXT DEFAULT "
+                    "'โรงพยาบาลสิงห์บุรี "
+                    "กลุ่มงานเภสัชกรรม "
+                    "โทร. ๐ ๓๖๕๒ ๒๕๐๘ ต่อ ๑๑๒๙'"
+                ),
+                "letter_prefix": (
+                    "VARCHAR(255) "
+                    "DEFAULT 'สห ๐๐๓๓.๒๐๕.๑๒/'"
+                ),
+                "recipient": (
+                    "VARCHAR(255) "
+                    "DEFAULT 'ผู้ว่าราชการจังหวัดสิงห์บุรี'"
+                ),
+                "officer_name": (
+                    "VARCHAR(255) "
+                    "DEFAULT 'นางพิณนภา ศริพันธุ์'"
+                ),
+                "officer_position": (
+                    "VARCHAR(255) DEFAULT 'เจ้าหน้าที่'"
+                ),
+                "chief_name": (
+                    "VARCHAR(255) "
+                    "DEFAULT 'นายชัชวาลย์ บุญญฤทธิ์'"
+                ),
+                "chief_position": (
+                    "VARCHAR(255) "
+                    "DEFAULT 'เภสัชกรชำนาญการพิเศษ'"
+                ),
+                "approver_name": (
+                    "VARCHAR(255) "
+                    "DEFAULT 'นายพิรุณ ปิตะหงษ์นันท์'"
+                ),
+                "approver_position": (
+                    "TEXT DEFAULT "
+                    "'ผู้อำนวยการโรงพยาบาลสิงห์บุรี "
+                    "ปฏิบัติราชการแทน "
+                    "ผู้ว่าราชการจังหวัดสิงห์บุรี'"
+                ),
+                "inspector1_name": (
+                    "VARCHAR(255) "
+                    "DEFAULT 'นางสาวกัญญพัชร ธนกิจการค้า'"
+                ),
+                "inspector1_position": (
+                    "VARCHAR(255) DEFAULT 'เภสัชกร'"
+                ),
+                "inspector2_name": (
+                    "VARCHAR(255) "
+                    "DEFAULT 'นางสาวชุลีพร สุขมี'"
+                ),
+                "inspector2_position": (
+                    "VARCHAR(255) "
+                    "DEFAULT 'เจ้าพนักงานเภสัชกรรมชำนาญงาน'"
+                ),
+                "inspector3_name": (
+                    "VARCHAR(255) "
+                    "DEFAULT 'นางสาวกัญญาพัชร เลิศอนันตกูล'"
+                ),
+                "inspector3_position": (
+                    "VARCHAR(255) "
+                    "DEFAULT 'เจ้าพนักงานเภสัชกรรม'"
+                ),
+                "specifier_name": (
+                    "VARCHAR(255) "
+                    "DEFAULT 'นางสาวนลินี เครือทิวา'"
+                ),
+                "specifier_position": (
+                    "VARCHAR(255) "
+                    "DEFAULT 'เภสัชกรชำนาญการ'"
+                ),
+                "receipt1_name": (
+                    "VARCHAR(255) "
+                    "DEFAULT 'นางสาวธัญรดา ใจเสน'"
+                ),
+                "receipt2_name": (
+                    "VARCHAR(255) "
+                    "DEFAULT 'นางสาวจุฑามาศ อาคมสรรเสริญ'"
+                ),
+                "receipt3_name": (
+                    "VARCHAR(255) "
+                    "DEFAULT 'นางสาวนริศรา ม่วงงาม'"
+                ),
+                "active": "BOOLEAN DEFAULT TRUE",
+                "created_at": (
+                    "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+                ),
+                "updated_at": (
+                    "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+                ),
+            },
+        )
 
-                    db.session.execute(
-                        text(
-                            """
-                            UPDATE government_profiles
-                            SET name = 'ข้อมูลราชการหลัก'
-                            WHERE name IS NULL OR name = ''
-                            """
-                        )
-                    )
+        db.session.commit()
 
-            # ---------------------------------------------------------
-            # Migration: purchases
-            # ---------------------------------------------------------
-            if "purchases" in table_names:
-                purchase_columns = {
-                    column["name"]
-                    for column in inspector.get_columns("purchases")
-                }
-
-                purchase_migrations = {
-                    "government_profile_id": "INTEGER",
-                    "procurement_type": (
-                        "VARCHAR(255) DEFAULT 'เวชภัณฑ์มิใช่ยา'"
-                    ),
-                    "necessity_reason": (
-                        "TEXT DEFAULT 'ใช้ในการรักษาผู้ป่วย'"
-                    ),
-                    "budget_allocated": (
-                        "NUMERIC(16,2) DEFAULT 0 NOT NULL"
-                    ),
-                    "budget_previously_used": (
-                        "NUMERIC(16,2) DEFAULT 0 NOT NULL"
-                    ),
-                }
-
-                for column_name, column_definition in (
-                    purchase_migrations.items()
-                ):
-                    if column_name not in purchase_columns:
-                        db.session.execute(
-                            text(
-                                f"""
-                                ALTER TABLE purchases
-                                ADD COLUMN {column_name}
-                                {column_definition}
-                                """
-                            )
-                        )
-
-            # ---------------------------------------------------------
-            # Migration: companies
-            # ---------------------------------------------------------
-            if "companies" in table_names:
-                company_columns = {
-                    column["name"]
-                    for column in inspector.get_columns("companies")
-                }
-
-                if "business_type" not in company_columns:
-                    db.session.execute(
-                        text(
-                            """
-                            ALTER TABLE companies
-                            ADD COLUMN business_type VARCHAR(255)
-                            DEFAULT 'ขายส่ง,ขายปลีก,ให้บริการ'
-                            """
-                        )
-                    )
-
-            db.session.commit()
-
-        except Exception:
-            db.session.rollback()
-            app.logger.exception(
-                "Database migration failed during application startup"
-            )
-            raise
-
-        # -------------------------------------------------------------
-        # เพิ่มข้อมูลราชการเริ่มต้น
-        # -------------------------------------------------------------
+        # สร้างข้อมูลราชการเริ่มต้น หากยังไม่มีข้อมูล
         if GovernmentProfile.query.count() == 0:
-            profile = GovernmentProfile()
+            db.session.add(GovernmentProfile())
 
-            # ตั้งชื่อเฉพาะเมื่อ Model มี attribute name
-            if hasattr(profile, "name"):
-                profile.name = "ข้อมูลราชการหลัก"
-
-            db.session.add(profile)
-            db.session.commit()
-
-        # -------------------------------------------------------------
-        # เพิ่มตัวเลือก Dropdown เริ่มต้น
-        # -------------------------------------------------------------
-        defaults = {
+        default_dropdowns = {
             "procurement_type": [
                 "เวชภัณฑ์มิใช่ยา",
                 "เวชภัณฑ์ยา",
@@ -190,14 +234,14 @@ def create_app():
             ],
         }
 
-        for category, values in defaults.items():
+        for category, values in default_dropdowns.items():
             for value in values:
-                existing_option = DropdownOption.query.filter_by(
+                exists = DropdownOption.query.filter_by(
                     category=category,
                     value=value,
                 ).first()
 
-                if existing_option is None:
+                if not exists:
                     db.session.add(
                         DropdownOption(
                             category=category,
