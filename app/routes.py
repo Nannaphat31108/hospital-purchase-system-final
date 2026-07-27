@@ -416,11 +416,15 @@ def _add_garuda(doc):
         p.add_run().add_picture(str(path), width=Cm(2.8))
 
 def _apply_table_grid(table):
+    """Apply the built-in Word table grid style when available.
+
+    Some uploaded Word templates do not contain a style named
+    ``Table Grid``. In that case, keep the table's existing style
+    instead of failing the Word export.
+    """
     try:
-        _apply_table_grid(table)
+        table.style = "Table Grid"
     except KeyError:
-        # บางไฟล์ต้นแบบไม่มี style Table Grid
-        # จึงปล่อยให้ใช้ style เดิมของเอกสาร
         pass
 def _add_purchase_order(doc, purchase):
     _add_garuda(doc)
