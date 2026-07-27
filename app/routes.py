@@ -415,7 +415,13 @@ def _add_garuda(doc):
         p.paragraph_format.space_after = Pt(0)
         p.add_run().add_picture(str(path), width=Cm(2.8))
 
-
+def _apply_table_grid(table):
+    try:
+        _apply_table_grid(table)
+    except KeyError:
+        # บางไฟล์ต้นแบบไม่มี style Table Grid
+        # จึงปล่อยให้ใช้ style เดิมของเอกสาร
+        pass
 def _add_purchase_order(doc, purchase):
     _add_garuda(doc)
     _paragraph(doc, "ใบสั่งซื้อ", WD_ALIGN_PARAGRAPH.CENTER, True, 20)
@@ -446,7 +452,7 @@ def _add_purchase_order(doc, purchase):
     _paragraph(doc, f"ตามที่ {purchase.company.name} ได้เสนอราคาไว้ต่อโรงพยาบาลสิงห์บุรี ซึ่งได้รับราคาและตกลงซื้อตามรายการดังต่อไปนี้", first_line=True)
 
     table = doc.add_table(rows=1, cols=6)
-    table.style = "Table Grid"
+    _apply_table_grid(table)
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     headers = ["ลำดับ", "รายการ", "จำนวน", "หน่วย", "ราคาต่อหน่วย\n(บาท)", "จำนวนเงิน\n(บาท)"]
     for i, value in enumerate(headers):
@@ -496,7 +502,7 @@ def _add_spec(doc, purchase):
     _paragraph(doc, "ด้วยกลุ่มงานเภสัชกรรม โรงพยาบาลสิงห์บุรี จะดำเนินการจัดซื้อพัสดุ ดังนี้", first_line=True)
 
     table = doc.add_table(rows=1, cols=5)
-    table.style = "Table Grid"
+    _apply_table_grid(table)
     headers = ["ลำดับ", "รายการ", "จำนวน", "หน่วยละ", "เป็นเงิน"]
     for i, value in enumerate(headers):
         _set_cell_text(table.rows[0].cells[i], value, True, WD_ALIGN_PARAGRAPH.CENTER)
@@ -632,7 +638,7 @@ def _add_procurement_pack(doc, purchase):
     _paragraph(doc, "เรียน ผู้ว่าราชการจังหวัดสิงห์บุรี")
     _paragraph(doc, f"ขอรายงานผลการพิจารณาซื้อ {subject} โดยวิธีเฉพาะเจาะจง ดังนี้", first_line=True)
     table = doc.add_table(rows=2, cols=4)
-    table.style = "Table Grid"
+    _apply_table_grid(table)
     headers = ["รายการพิจารณา", "รายชื่อผู้ยื่นข้อเสนอ", "ราคาที่เสนอ*", "ราคาที่ตกลงซื้อหรือจ้าง*"]
     for i, h in enumerate(headers):
         _set_cell_text(table.rows[0].cells[i], h, True, WD_ALIGN_PARAGRAPH.CENTER)
