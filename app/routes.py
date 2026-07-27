@@ -673,7 +673,17 @@ def _build_exact_procurement_template(purchase):
     doc = Document(str(template_path))
     profile = purchase.government_profile or GovernmentProfile.query.filter_by(active=True).first() or GovernmentProfile()
     total = purchase.total_amount
-    label = purchase.procurement_label
+    if len(purchase.lines) == 1:
+        line = purchase.lines[0]
+        label = (
+            f"{line.description} จำนวน "
+            f"{line.quantity:g} {line.unit.name}"
+        )
+    else:
+        label = (
+             f"{purchase.procurement_type or 'เวชภัณฑ์มิใช่ยา'} "
+             f"จำนวน {len(purchase.lines)} รายการ"
+        )
     replacements = [
         ("โรงพยาบาลสิงห์บุรี กลุ่มงานเภสัชกรรมโทร. ๐ ๓๖๕๒ ๒๕๐๘ ต่อ ๑๑๒๙", profile.department),
         ("โรงพยาบาลสิงห์บุรี กลุ่มงานเภสัชกรรม โทร. ๐ ๓๖๕๒ ๒๕๐๘ ต่อ ๑๑๒๙", profile.department),
