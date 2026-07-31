@@ -416,16 +416,13 @@ def _add_garuda(doc):
         p.add_run().add_picture(str(path), width=Cm(2.8))
 
 def _apply_table_grid(table):
-    """Apply the built-in Word table grid style when available.
-
-    Some uploaded Word templates do not contain a style named
-    ``Table Grid``. In that case, keep the table's existing style
-    instead of failing the Word export.
-    """
+    """Apply Table Grid when the template contains that built-in style."""
     try:
         table.style = "Table Grid"
     except KeyError:
         pass
+
+
 def _add_purchase_order(doc, purchase):
     _add_garuda(doc)
     _paragraph(doc, "ใบสั่งซื้อ", WD_ALIGN_PARAGRAPH.CENTER, True, 20)
@@ -664,65 +661,56 @@ def _add_procurement_pack(doc, purchase):
     _paragraph(doc, f"ประกาศ ณ วันที่ {purchase.document_date.strftime('%d/%m/%Y')}", WD_ALIGN_PARAGRAPH.CENTER)
     _paragraph(doc, "(นายพิรุณ ปิตะหงษ์นันท์)\nผู้อำนวยการโรงพยาบาลสิงห์บุรี ปฏิบัติราชการแทน\nผู้ว่าราชการจังหวัดสิงห์บุรี", WD_ALIGN_PARAGRAPH.CENTER)
 
+def _replace_text_once_in_paragraph(paragraph, old, new):
+    """Replace text across runs while preserving surrounding formatting."""
+    old = str(old or "")
+    new = str(new or "")
+    if not old or not paragraph.runs:
+        return False
+
+    full_text = "".join(run.text for run in paragraph.runs)
+    start_index = full_text.find(old)
+    if start_index < 0:
+        return False
+    end_index = start_index + len(old)
+
+    positions = []
+    cursor = 0
+    for index, run in enumerate(paragraph.runs):
+        positions.append((index, cursor, cursor + len(run.text)))
+        cursor += len(run.text)
+
+    first_index = next((i for i, s, e in positions if e > start_index), None)
+    last_index = None
+    for i, s, e in positions:
+        if s < end_index:
+            last_index = i
+
+    if first_index is None or last_index is None:
+        return False
+
+    first_run = paragraph.runs[first_index]
+    last_run = paragraph.runs[last_index]
+    first_start = positions[first_index][1]
+    last_start = positions[last_index][1]
+
+    prefix = first_run.text[:max(0, start_index - first_start)]
+    suffix = last_run.text[max(0, end_index - last_start):]
+    first_run.text = prefix + new + suffix
+    _set_run_font(first_run, 16)
+
+    for index in range(first_index + 1, last_index + 1):
+        paragraph.runs[index].text = ""
+    return True
+
+
 def _replace_paragraph_text(paragraph, replacements):
-    original = paragraph.text
-    updated = original
     for old, new in replacements:
-        updated = updated.replace(old, str(new))
-    if updated == original:
-        return
-    first = paragraph.runs[0] if paragraph.runs else paragraph.add_run()
-    for run in paragraph.runs:
-        run.text = ""
-    first.text = updated
-    _set_run_font(first, 16)
+        while _replace_text_once_in_paragraph(paragraph, old, new):
+            pass
 
 
-def _build_exact_procurement_template(purchase):
-    template_path = Path(__file__).resolve().parent / "templates" / "word" / "purchase_master.docx"
-    doc = Document(str(template_path))
-    profile = purchase.government_profile or GovernmentProfile.query.filter_by(active=True).first() or GovernmentProfile()
-    total = purchase.total_amount
-    if len(purchase.lines) == 1:
-        line = purchase.lines[0]
-        label = (
-            f"{line.description} จำนวน "
-            f"{line.quantity:g} {line.unit.name}"
-        )
-    else:
-        label = (
-             f"{purchase.procurement_type or 'เวชภัณฑ์มิใช่ยา'} "
-             f"จำนวน {len(purchase.lines)} รายการ"
-        )
-    replacements = [
-        ("โรงพยาบาลสิงห์บุรี กลุ่มงานเภสัชกรรมโทร. ๐ ๓๖๕๒ ๒๕๐๘ ต่อ ๑๑๒๙", profile.department),
-        ("โรงพยาบาลสิงห์บุรี กลุ่มงานเภสัชกรรม โทร. ๐ ๓๖๕๒ ๒๕๐๘ ต่อ ๑๑๒๙", profile.department),
-        ("สห ๐๐๓๓.๒๐๕.๑๒/", profile.letter_prefix),
-        ("กรกฎาคม ๒๕๖๙", purchase.document_date.strftime("%d/%m/%Y")),
-        ("กรกฎาคม 2569", purchase.document_date.strftime("%d/%m/%Y")),
-        ("เวชภัณฑ์มิใช่ยา จำนวน 2 รายการ", label),
-        ("เวชภัณฑ์มิใช่ยา จำนวน2 รายการ", label),
-        ("บริษัท แปซิฟิค เฮลธ์แคร์ (ไทยแลนด์) จำกัด", purchase.company.name),
-        ("บริษัท แปซิฟิค เฮลธ์แคร์(ไทยแลนด์) จำกัด", purchase.company.name),
-        ("14,000.00", f"{total:,.2f}"),
-        ("หนึ่งหมื่นสี่พันบาทถ้วน", baht_text(total)),
-        ("หนึ่งหมื่นห้าพันหกร้อยบาทถ้วน", baht_text(total)),
-        ("18,678,700.00", f"{purchase.budget_allocated:,.2f}"),
-        ("9,727,520.57", f"{purchase.budget_previously_used:,.2f}"),
-        ("8,937,179.43", f"{purchase.budget_remaining:,.2f}"),
-        ("69079275357", purchase.project_number or "........................"),
-        ("690714258286", purchase.contract_control_number or "........................"),
-        ("PO-๖๙-๐๒๐๐802", purchase.po_number),
-        ("นางพิณนภา ศริพันธุ์", profile.officer_name),
-        ("นายชัชวาลย์ บุญญฤทธิ์", profile.chief_name),
-        ("นายพิรุณ ปิตะหงษ์นันท์", profile.approver_name),
-        ("นางสาวกัญญพัชร ธนกิจการค้า", profile.inspector1_name),
-        ("นางสาวชุลีพร สุขมี", profile.inspector2_name),
-        ("นางสาวกัญญาพัชร เลิศอนันตกูล", profile.inspector3_name),
-        ("นางสาวนลินี เครือทิวา", profile.specifier_name),
-        ("เงินบำรุงโรงพยาบาลสิงห์บุรี ปี ๒๕๖๙", purchase.budget_source),
-        ("ใช้ในการรักษาผู้ป่วย", purchase.necessity_reason),
-    ]
+def _replace_in_document(doc, replacements):
     for paragraph in doc.paragraphs:
         _replace_paragraph_text(paragraph, replacements)
     for table in doc.tables:
@@ -730,26 +718,194 @@ def _build_exact_procurement_template(purchase):
             for cell in row.cells:
                 for paragraph in cell.paragraphs:
                     _replace_paragraph_text(paragraph, replacements)
-    # Exact blue product table in the supplied master is table 4 (six product rows).
-    if len(doc.tables) > 4:
-        table = doc.tables[4]
-        for i in range(1, 7):
-            line = purchase.lines[i-1] if i <= len(purchase.lines) else None
-            values = [str(i), line.description if line else "", f"{line.quantity:g}  {line.unit.name}" if line else "", f"{line.unit_price:,.2f}" if line else "", f"{line.amount:,.2f}" if line else ""]
-            for j, value in enumerate(values):
-                _set_cell_text(table.cell(i, j), value, align=WD_ALIGN_PARAGRAPH.LEFT if j == 1 else WD_ALIGN_PARAGRAPH.CENTER)
-        _set_cell_text(table.cell(7,1), f"({baht_text(total)})", align=WD_ALIGN_PARAGRAPH.CENTER)
-        _set_cell_text(table.cell(7,4), f"{total:,.2f}", align=WD_ALIGN_PARAGRAPH.RIGHT)
-    # Keep the original document's text and page layout, but normalize variable runs to TH Sarabun New 16.
-    for paragraph in doc.paragraphs:
-        for run in paragraph.runs:
-            _set_run_font(run, 16)
+
+
+def _thai_document_date(value):
+    months = [
+        "", "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม",
+        "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม",
+        "พฤศจิกายน", "ธันวาคม",
+    ]
+    return f"{value.day} {months[value.month]} {value.year + 543}"
+
+
+def _set_table_value(table, row_index, column_index, value, align=WD_ALIGN_PARAGRAPH.CENTER):
+    if row_index < len(table.rows) and column_index < len(table.columns):
+        _set_cell_text(table.cell(row_index, column_index), value, align=align, size=16)
+
+
+def _find_table(doc, required_text):
     for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                for paragraph in cell.paragraphs:
-                    for run in paragraph.runs:
-                        _set_run_font(run, 16)
+        table_text = "\n".join(cell.text for row in table.rows for cell in row.cells)
+        if str(required_text) in table_text:
+            return table
+    return None
+
+
+def _build_exact_procurement_template(purchase):
+    """Fill the manually corrected Word master without adding duplicate pages."""
+    template_path = Path(__file__).resolve().parent / "templates" / "word" / "purchase_master.docx"
+    if not template_path.exists():
+        raise FileNotFoundError(f"ไม่พบไฟล์ต้นแบบ Word: {template_path}")
+
+    doc = Document(str(template_path))
+    profile = (
+        purchase.government_profile
+        or GovernmentProfile.query.filter_by(active=True).first()
+        or GovernmentProfile()
+    )
+
+    lines = list(purchase.lines)
+    item_count = len(lines)
+    total = to_decimal(purchase.total_amount)
+    subtotal, vat = _vat_values(purchase)
+    procurement_type = purchase.procurement_type or "เวชภัณฑ์มิใช่ยา"
+    procurement_label = f"{procurement_type} จำนวน {item_count} รายการ"
+    thai_date = _thai_document_date(purchase.document_date)
+    short_date = purchase.document_date.strftime("%d/%m/%Y")
+
+    budget_allocated = to_decimal(purchase.budget_allocated)
+    budget_used = to_decimal(purchase.budget_previously_used)
+    budget_this_time = total
+    budget_remaining = (budget_allocated - budget_used - budget_this_time).quantize(Decimal("0.01"))
+
+    company = purchase.company
+
+    replacements = [
+        ("โรงพยาบาลสิงห์บุรี กลุ่มงานเภสัชกรรมโทร. ๐ ๓๖๕๒ ๒๕๐๘ ต่อ ๑๑๒๙", profile.department),
+        ("โรงพยาบาลสิงห์บุรี กลุ่มงานเภสัชกรรม โทร. ๐ ๓๖๕๒ ๒๕๐๘ ต่อ ๑๑๒๙", profile.department),
+        ("โรงพยาบาลสิงห์บุรี   กลุ่มงานเภสัชกรรม โทร. 03652 2508 ต่อ 1129", profile.department),
+        ("สห ๐๐๓๓.๒๐๕.๑๒/", profile.letter_prefix),
+        ("กรกฎาคม   2569", thai_date),
+        ("กรกฎาคม ๒๕๖๙", thai_date),
+        ("กรกฎาคม 2569", thai_date),
+
+        ("เวชภัณฑ์มิใช่ยา จำนวน 10 รายการ", procurement_label),
+        ("เวชภัณฑ์มิใช่ยา จำวน 10 รายการ", procurement_label),
+        ("เวชภัณฑ์มิใช่ยา จำนวน 2 รายการ", procurement_label),
+        ("เวชภัณฑ์มิใช่ยา จำนวน2 รายการ", procurement_label),
+        ("เวชภัณฑ์มิใช่ยา จำนวน 1 รายการ", procurement_label),
+        ("เวชภัณฑ์มิใช่ยา จำวน 1 รายการ", procurement_label),
+
+        ("บริษัท พี.เอ็น.โปรดักส์ นครสวรรค์ จำกัด", company.name),
+        ("บริษัท พี.เอ็น.โปรดักส์ นครสวรรค์จำกัด", company.name),
+        ("๐๕๖๒๒๒๑๑๒", company.phone or "-"),
+        ("๐๖๐๕๕๒๒๐๐๐๗๙๗", company.tax_id or "-"),
+        ("ธนาคารกรุงไทยจำกัด (มหาชน)", company.bank_name or "-"),
+        ("ปากน้ำโพ", company.bank_branch or "-"),
+        ("๖๒๘๑๒๘๐๙๘๑", company.account_no or "-"),
+        ("พี.เอ็น.โปรดักส์ นครสวรรค์ หจก.", company.account_name or "-"),
+
+        ("PO-๖๙-0๒00๗๘", purchase.po_number),
+        ("25/07/2026", short_date),
+        ("69079275357", purchase.project_number or "........................"),
+        ("690714258286", purchase.contract_control_number or "........................"),
+
+        ("30,000.00", f"{total:,.2f}"),
+        ("30000", f"{total:,.2f}"),
+        ("สามหมื่นบาทถ้วน", baht_text(total)),
+        ("28,037.38", f"{subtotal:,.2f}"),
+        ("1,962.62", f"{vat:,.2f}"),
+
+        ("1,000.00", f"{budget_allocated:,.2f}"),
+        ("1000.00", f"{budget_allocated:,.2f}"),
+        ("คำนวณอัตโนมัติ", f"{budget_this_time:,.2f}"),
+        ("คำนวนอัตโนมัติ", f"{budget_this_time:,.2f}"),
+
+        ("ใช้ในการรักษาผู้ป่วย", purchase.necessity_reason or "ใช้ในการรักษาผู้ป่วย"),
+        ("เงินนอกงบประมาณจาก เงินบำรุงโรงพยาบาลสิงห์บุรี ปี ๒๕๖๙", purchase.budget_source or ""),
+        ("โรงพยาบาลสิงห์บุรี ๙๑๗/๓", purchase.delivery_place or "โรงพยาบาลสิงห์บุรี ๙๑๗/๓"),
+
+        ("นางพิณนภา ศริพันธุ์", profile.officer_name),
+        ("นายชัชวาลย์ บุญญฤทธิ์", profile.chief_name),
+        ("นายชัชวาล บุญญฤทธิ์", profile.chief_name),
+        ("นายพิรุณ ปิตะหงษ์นันท์", profile.approver_name),
+        ("นางสาวกัญญพัชร ธนกิจการค้า", profile.inspector1_name),
+        ("นางสาวชุลีพร สุขมี", profile.inspector2_name),
+        ("นางสาวกัญญาพัชร เลิศอนันตกูล", profile.inspector3_name),
+        ("นางสาวนลินี เครือทิวา", profile.specifier_name),
+    ]
+    _replace_in_document(doc, replacements)
+
+    # Update all product tables while retaining the template's layout.
+    for table in doc.tables:
+        header = " | ".join(cell.text.strip() for cell in table.rows[0].cells)
+        if not ("รายการ" in header and "จำนวน" in header and ("หน่วยละ" in header or "ราคาต่อหน่วย" in header)):
+            continue
+
+        product_row_count = min(6, max(0, len(table.rows) - 1))
+        for index in range(product_row_count):
+            line = lines[index] if index < item_count else None
+            row_index = index + 1
+
+            if len(table.columns) == 5:
+                values = [
+                    str(index + 1),
+                    line.description if line else "",
+                    f"{line.quantity:g} {line.unit.name}" if line else "",
+                    f"{line.unit_price:,.2f}" if line else "",
+                    f"{line.amount:,.2f}" if line else "",
+                ]
+            else:
+                values = [
+                    str(index + 1),
+                    line.description if line else "",
+                    f"{line.quantity:g}" if line else "",
+                    line.unit.name if line else "",
+                    f"{line.unit_price:,.2f}" if line else "",
+                    f"{line.amount:,.2f}" if line else "",
+                ]
+
+            for column_index, value in enumerate(values):
+                if column_index < len(table.columns):
+                    align = WD_ALIGN_PARAGRAPH.LEFT if column_index == 1 else WD_ALIGN_PARAGRAPH.CENTER
+                    _set_table_value(table, row_index, column_index, value, align)
+
+        for row_index, row in enumerate(table.rows):
+            row_text = " ".join(cell.text for cell in row.cells)
+            if "รวมเป็นเงินทั้งสิ้น" in row_text:
+                _set_table_value(table, row_index, len(table.columns) - 1, f"{total:,.2f}", WD_ALIGN_PARAGRAPH.RIGHT)
+                if len(table.columns) >= 5:
+                    _set_table_value(table, row_index, 1, f"({baht_text(total)})", WD_ALIGN_PARAGRAPH.CENTER)
+
+    # Replace seller information in the purchase-order box.
+    seller_table = _find_table(doc, "ผู้ขาย")
+    if seller_table is not None and seller_table.rows:
+        left_text = (
+            f"ผู้ขาย {company.name}\n"
+            f"ที่อยู่ {company.address or '-'}\n"
+            f"โทรศัพท์ {company.phone or '-'}\n"
+            f"เลขประจำตัวผู้เสียภาษี {company.tax_id or '-'}\n"
+            f"เลขที่บัญชีเงินฝากธนาคาร {company.account_no or '-'}\n"
+            f"ชื่อบัญชี {company.account_name or '-'}\n"
+            f"ธนาคาร {company.bank_name or '-'}"
+            + (f" สาขา {company.bank_branch}" if company.bank_branch else "")
+        )
+        right_text = (
+            f"เลขที่ {purchase.po_number}\n"
+            f"วันที่ {short_date}\n\n"
+            "ส่วนราชการ โรงพยาบาลสิงห์บุรี\n"
+            "ที่อยู่ ๙๑๗/๓ ตำบลบางพุทรา อำเภอเมืองสิงห์บุรี จังหวัดสิงห์บุรี ๑๖๐๐๐\n"
+            "โทรศัพท์ ๐๓๖-๕๒๒๕๐๗"
+        )
+        _set_cell_text(seller_table.cell(0, 0), left_text, size=16)
+        if len(seller_table.columns) > 1:
+            _set_cell_text(seller_table.cell(0, 1), right_text, size=16)
+
+    # Fill the budget table with calculated values.
+    budget_table = _find_table(doc, "ยอดที่ได้รับ")
+    if budget_table is not None and len(budget_table.rows) >= 2:
+        values = [budget_allocated, budget_used, budget_this_time, budget_remaining]
+        for column_index, value in enumerate(values):
+            if column_index < len(budget_table.columns):
+                _set_table_value(
+                    budget_table,
+                    1,
+                    column_index,
+                    f"{value:,.2f}",
+                    WD_ALIGN_PARAGRAPH.CENTER,
+                )
+
     return doc
 
 
@@ -768,15 +924,9 @@ def _build_word(purchase, form_type):
     elif form_type == "procurement_pack":
         doc = _build_exact_procurement_template(purchase)
     elif form_type == "all":
+        # The corrected master already contains the complete document pack.
+        # Do not append duplicate pages.
         doc = _build_exact_procurement_template(purchase)
-        doc.add_page_break()
-        _add_purchase_order(doc, purchase)
-        doc.add_page_break()
-        _add_spec(doc, purchase)
-        doc.add_page_break()
-        _add_integrity_form(doc, purchase)
-        doc.add_page_break()
-        _add_acceptance_receipt(doc, purchase)
     else:
         raise ValueError("ไม่พบรูปแบบ Word")
 
