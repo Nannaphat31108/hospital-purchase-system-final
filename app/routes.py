@@ -704,18 +704,13 @@ def _replace_text_once_in_paragraph(paragraph, old, new):
     return True
 
 
-def _replace_text_once_in_paragraph(paragraph, old, new):
-    ...
-    if full_text.find(old) == -1:
-        return False
+def _replace_paragraph_text(paragraph, replacements):
+    # Replace each source phrase at most once per paragraph.
+    # Using a while-loop can repeat forever when the replacement text
+    # still contains the source phrase.
+    for old, new in replacements:
+        _replace_text_once_in_paragraph(paragraph, old, new)
 
-    ...
-    first_run.text = prefix + new + suffix
-
-    for i in range(first_run_index + 1, last_run_index + 1):
-        runs[i].text = ""
-
-    return False
 
 def _replace_in_document(doc, replacements):
     for paragraph in doc.paragraphs:
