@@ -744,6 +744,60 @@ def _find_table(doc, required_text):
     return None
 
 
+def _replace_exact_xml_texts(doc, source_text, values):
+    """Replace exact text nodes, including text inside Word text boxes."""
+    pending = [str(value) for value in values]
+    if not pending:
+        return 0
+
+    replaced = 0
+    for text_node in doc.element.xpath(".//w:t"):
+        if text_node.text == source_text and pending:
+            text_node.text = pending.pop(0)
+            replaced += 1
+    return replaced
+
+
+def _fill_calculated_template_values(
+    doc,
+    subtotal,
+    vat,
+    current_amount,
+    remaining_amount,
+):
+    # ช่อง "คำนวนมา" สองช่อง:
+    # ช่องแรก = ยอดก่อน VAT, ช่องที่สอง = VAT
+    _replace_exact_xml_texts(
+        doc,
+        "คำนวนมา",
+        [f"{subtotal:,.2f}", f"{vat:,.2f}"],
+    )
+    _replace_exact_xml_texts(
+        doc,
+        "คำนวณมา",
+        [f"{subtotal:,.2f}", f"{vat:,.2f}"],
+    )
+
+    # ช่อง "คำนวนอัตโนมัติ" สองช่อง:
+    # ช่องแรก = ยอดที่จัดหาครั้งนี้
+    # ช่องที่สอง = ยอดคงเหลือ
+    budget_values = [
+        f"{current_amount:,.2f}",
+        f"{remaining_amount:,.2f}",
+    ]
+    replaced = _replace_exact_xml_texts(
+        doc,
+        "คำนวนอัตโนมัติ",
+        budget_values,
+    )
+    if replaced == 0:
+        _replace_exact_xml_texts(
+            doc,
+            "คำนวณอัตโนมัติ",
+            budget_values,
+        )
+
+
 def _build_exact_procurement_template(purchase):
     """Fill the manually corrected Word master without adding duplicate pages."""
     template_path = Path(__file__).resolve().parent / "templates" / "word" / "purchase_master.docx"
@@ -811,8 +865,6 @@ def _build_exact_procurement_template(purchase):
 
         ("1,000.00", f"{budget_allocated:,.2f}"),
         ("1000.00", f"{budget_allocated:,.2f}"),
-        ("คำนวณอัตโนมัติ", f"{budget_this_time:,.2f}"),
-        ("คำนวนอัตโนมัติ", f"{budget_this_time:,.2f}"),
 
         ("ใช้ในการรักษาผู้ป่วย", purchase.necessity_reason or "ใช้ในการรักษาผู้ป่วย"),
         ("เงินนอกงบประมาณจาก เงินบำรุงโรงพยาบาลสิงห์บุรี ปี ๒๕๖๙", purchase.budget_source or ""),
@@ -828,6 +880,15 @@ def _build_exact_procurement_template(purchase):
         ("นางสาวนลินี เครือทิวา", profile.specifier_name),
     ]
     _replace_in_document(doc, replacements)
+
+    # เติมค่าที่คำนวณแล้วลงใน Text Box ของไฟล์ Word
+    _fill_calculated_template_values(
+        doc,
+        subtotal=subtotal,
+        vat=vat,
+        current_amount=budget_this_time,
+        remaining_amount=budget_remaining,
+    )
 
     # Update all product tables while retaining the template's layout.
     for table in doc.tables:
