@@ -798,6 +798,190 @@ def _fill_calculated_template_values(
         )
 
 
+
+def _arabic_digits(value):
+    """Convert Thai numerals to Arabic numerals for seller/contact fields."""
+    table = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
+    return str(value or "").translate(table)
+
+
+def _all_standard_paragraphs(doc):
+    """Yield normal paragraphs and paragraphs inside normal Word tables."""
+    seen = set()
+
+    for paragraph in doc.paragraphs:
+        key = id(paragraph._p)
+        if key not in seen:
+            seen.add(key)
+            yield paragraph
+
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    key = id(paragraph._p)
+                    if key not in seen:
+                        seen.add(key)
+                        yield paragraph
+
+
+def _set_paragraph_compact(paragraph, line_spacing=1.0, before=0, after=0):
+    paragraph.paragraph_format.line_spacing = line_spacing
+    paragraph.paragraph_format.space_before = Pt(before)
+    paragraph.paragraph_format.space_after = Pt(after)
+
+
+def _set_checkbox_size(paragraph, size=11):
+    """Make checkbox glyphs smaller without reducing the surrounding text."""
+    for run in list(paragraph.runs):
+        if "☐" not in run.text and "□" not in run.text:
+            continue
+
+        original = run.text
+        # When the run contains only a checkbox, resize it directly.
+        if original.strip() in {"☐", "□"}:
+            run.font.size = Pt(size)
+            continue
+
+        # Split mixed text so only the checkbox is smaller.
+        parts = []
+        current = ""
+        for char in original:
+            if char in {"☐", "□"}:
+                if current:
+                    parts.append(("text", current))
+                    current = ""
+                parts.append(("box", char))
+            else:
+                current += char
+        if current:
+            parts.append(("text", current))
+
+        run.text = ""
+        parent = run._r.getparent()
+        insert_at = parent.index(run._r) + 1
+
+        for kind, value in parts:
+            new_run = paragraph.add_run(value)
+            _set_run_font(new_run, size if kind == "box" else 16)
+            parent.remove(new_run._r)
+            parent.insert(insert_at, new_run._r)
+            insert_at += 1
+
+
+def _replace_first_paragraph_containing(doc, needle, new_text, align=None):
+    """Replace a whole standard paragraph containing needle."""
+    for paragraph in _all_standard_paragraphs(doc):
+        if needle in paragraph.text:
+            paragraph.text = ""
+            run = paragraph.add_run(new_text)
+            _set_run_font(run, 16)
+            if align is not None:
+                paragraph.alignment = align
+            _set_paragraph_compact(paragraph)
+            return True
+    return False
+
+
+def _apply_review_layout(doc, purchase, profile, company, thai_date, subtotal, vat, total):
+    """Apply the layout corrections marked in the review document."""
+
+    # 1) Headings such as "บันทึกข้อความ" and "ใบสั่งซื้อ" must be centered.
+    for paragraph in _all_standard_paragraphs(doc):
+        clean = " ".join(paragraph.text.split())
+
+        if clean in {"บันทึกข้อความ", "ใบสั่งซื้อ", "ประกาศจังหวัดสิงห์บุรี"}:
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            _set_paragraph_compact(paragraph, after=0)
+
+        # Keep ordinary document text tightly spaced like the reviewed copy.
+        if clean.startswith(("ส่วนราชการ", "ที่ ", "เรื่อง ", "เรียน ")):
+            _set_paragraph_compact(paragraph, after=0)
+
+        # Purchase-order conditions: keep 1-6 compact.
+        if clean.startswith(("๑.", "๒.", "๓.", "๔.", "๕.", "๖.")):
+            _set_paragraph_compact(paragraph, after=0)
+
+        # Reviewer asked for condition 7 to begin on the following page.
+        if clean.startswith("๗.") and "การประเมินผลการปฏิบัติงานของผู้ประกอบการ" in clean:
+            paragraph.paragraph_format.page_break_before = True
+            _set_paragraph_compact(paragraph, after=0)
+
+        if "หมายเหตุ" in clean:
+            _set_paragraph_compact(paragraph, after=0)
+
+        # Acceptance receipt spacing.
+        if clean.startswith(("1. ผลการตรวจรับ", "2. ค่าปรับ", "3. การเบิกจ่ายเงิน")):
+            _set_paragraph_compact(paragraph, after=0)
+
+        if "☐" in paragraph.text or "□" in paragraph.text:
+            _set_paragraph_compact(paragraph, after=0)
+            _set_checkbox_size(paragraph, size=11)
+
+    # 2) Announcement date must not remain blank.
+    _replace_first_paragraph_containing(
+        doc,
+        "ประกาศ ณ วันที่",
+        f"ประกาศ ณ วันที่ {thai_date}",
+        WD_ALIGN_PARAGRAPH.CENTER,
+    )
+
+    # 3) Acceptance-receipt date uses Thai long date.
+    for paragraph in _all_standard_paragraphs(doc):
+        clean = " ".join(paragraph.text.split())
+        if clean.startswith("วันที่ ") and "/" in clean:
+            paragraph.text = ""
+            run = paragraph.add_run(f"วันที่ {thai_date}")
+            _set_run_font(run, 16)
+            _set_paragraph_compact(paragraph)
+
+        if "ตามใบสั่งซื้อ" in clean and "ลงวันที่" in clean:
+            old_short = purchase.document_date.strftime("%d/%m/%Y")
+            if old_short in paragraph.text:
+                paragraph.text = paragraph.text.replace(old_short, thai_date)
+                for run in paragraph.runs:
+                    _set_run_font(run, 16)
+                _set_paragraph_compact(paragraph)
+
+    # 4) Keep table rows aligned and compact.
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+                for paragraph in cell.paragraphs:
+                    _set_paragraph_compact(paragraph, after=0)
+
+    # 5) Purchase-order numeric rows.
+    # These are also handled by XML replacement, but this guarantees normal
+    # table cells receive the same calculated values.
+    for table in doc.tables:
+        for row in table.rows:
+            row_text = " ".join(cell.text for cell in row.cells)
+            if "รวมเป็นเงิน" in row_text and "รวมเป็นเงินทั้งสิ้น" not in row_text:
+                if len(row.cells) >= 2:
+                    _set_cell_text(
+                        row.cells[-1],
+                        f"{subtotal:,.2f}",
+                        align=WD_ALIGN_PARAGRAPH.RIGHT,
+                        size=16,
+                    )
+            elif "ภาษีมูลค่าเพิ่ม" in row_text:
+                _set_cell_text(
+                    row.cells[-1],
+                    f"{vat:,.2f}",
+                    align=WD_ALIGN_PARAGRAPH.RIGHT,
+                    size=16,
+                )
+            elif "รวมเป็นเงินทั้งสิ้น" in row_text:
+                _set_cell_text(
+                    row.cells[-1],
+                    f"{total:,.2f}",
+                    bold=True,
+                    align=WD_ALIGN_PARAGRAPH.RIGHT,
+                    size=16,
+                )
+
+
 def _build_exact_procurement_template(purchase):
     """Fill the manually corrected Word master without adding duplicate pages."""
     template_path = Path(__file__).resolve().parent / "templates" / "word" / "purchase_master.docx"
@@ -827,6 +1011,22 @@ def _build_exact_procurement_template(purchase):
 
     company = purchase.company
 
+    # The form stores the whole budget-source phrase.  The original template
+    # already contains the prefix in some places, so normalize it once to
+    # prevent "เงินนอกงบประมาณจาก" from appearing twice.
+    budget_source_full = (
+        purchase.budget_source
+        or "เงินนอกงบประมาณจาก เงินบำรุงโรงพยาบาลสิงห์บุรี ปี ๒๕๖๙"
+    ).strip()
+    budget_source_without_prefix = budget_source_full
+    prefix = "เงินนอกงบประมาณจาก "
+    if budget_source_without_prefix.startswith(prefix):
+        budget_source_without_prefix = budget_source_without_prefix[len(prefix):].strip()
+
+    company_phone_arabic = _arabic_digits(company.phone or "-")
+    company_tax_arabic = _arabic_digits(company.tax_id or "-")
+    company_account_arabic = _arabic_digits(company.account_no or "-")
+
     replacements = [
         ("โรงพยาบาลสิงห์บุรี กลุ่มงานเภสัชกรรมโทร. ๐ ๓๖๕๒ ๒๕๐๘ ต่อ ๑๑๒๙", profile.department),
         ("โรงพยาบาลสิงห์บุรี กลุ่มงานเภสัชกรรม โทร. ๐ ๓๖๕๒ ๒๕๐๘ ต่อ ๑๑๒๙", profile.department),
@@ -845,19 +1045,25 @@ def _build_exact_procurement_template(purchase):
 
         ("บริษัท พี.เอ็น.โปรดักส์ นครสวรรค์ จำกัด", company.name),
         ("บริษัท พี.เอ็น.โปรดักส์ นครสวรรค์จำกัด", company.name),
-        ("๐๕๖๒๒๒๑๑๒", company.phone or "-"),
-        ("๐๖๐๕๕๒๒๐๐๐๗๙๗", company.tax_id or "-"),
+        ("บริษัท แปซิฟิค เฮลธ์แคร์ (ไทยแลนด์) จำกัด", company.name),
+        ("บริษัท แปซิฟิค เฮลธ์แคร์(ไทยแลนด์) จำกัด", company.name),
+        ("๐๕๖๒๒๒๑๑๒", company_phone_arabic),
+        ("๐๖๐๕๕๒๒๐๐๐๗๙๗", company_tax_arabic),
         ("ธนาคารกรุงไทยจำกัด (มหาชน)", company.bank_name or "-"),
         ("ปากน้ำโพ", company.bank_branch or "-"),
-        ("๖๒๘๑๒๘๐๙๘๑", company.account_no or "-"),
+        ("๖๒๘๑๒๘๐๙๘๑", company_account_arabic),
         ("พี.เอ็น.โปรดักส์ นครสวรรค์ หจก.", company.account_name or "-"),
 
         ("PO-๖๙-0๒00๗๘", purchase.po_number),
+        ("PO-๖๙-๐๒00821", purchase.po_number),
+        ("PO-๖๙-๐๒๐๐802", purchase.po_number),
         ("25/07/2026", short_date),
         ("69079275357", purchase.project_number or "........................"),
         ("690714258286", purchase.contract_control_number or "........................"),
 
         ("30,000.00", f"{total:,.2f}"),
+        ("หนึ่งหมื่นสี่พันบาทถ้วน", baht_text(total)),
+        ("14,000.00", f"{total:,.2f}"),
         ("30000", f"{total:,.2f}"),
         ("สามหมื่นบาทถ้วน", baht_text(total)),
         ("28,037.38", f"{subtotal:,.2f}"),
@@ -867,7 +1073,18 @@ def _build_exact_procurement_template(purchase):
         ("1000.00", f"{budget_allocated:,.2f}"),
 
         ("ใช้ในการรักษาผู้ป่วย", purchase.necessity_reason or "ใช้ในการรักษาผู้ป่วย"),
-        ("เงินนอกงบประมาณจาก เงินบำรุงโรงพยาบาลสิงห์บุรี ปี ๒๕๖๙", purchase.budget_source or ""),
+        (
+            "เงินนอกงบประมาณจาก เงินนอกงบประมาณจาก เงินบำรุงโรงพยาบาลสิงห์บุรี ปี ๒๕๖๙",
+            budget_source_full,
+        ),
+        (
+            "เงินนอกงบประมาณจาก เงินบำรุงโรงพยาบาลสิงห์บุรี ปี ๒๕๖๙",
+            budget_source_full,
+        ),
+        (
+            "เงินบำรุงโรงพยาบาลสิงห์บุรี ปี ๒๕๖๙",
+            budget_source_without_prefix,
+        ),
         ("โรงพยาบาลสิงห์บุรี ๙๑๗/๓", purchase.delivery_place or "โรงพยาบาลสิงห์บุรี ๙๑๗/๓"),
 
         ("นางพิณนภา ศริพันธุ์", profile.officer_name),
@@ -878,6 +1095,10 @@ def _build_exact_procurement_template(purchase):
         ("นางสาวชุลีพร สุขมี", profile.inspector2_name),
         ("นางสาวกัญญาพัชร เลิศอนันตกูล", profile.inspector3_name),
         ("นางสาวนลินี เครือทิวา", profile.specifier_name),
+        ("ผู้ว่ารายการจังหวัดสิงห์บุรี", "ผู้ว่าราชการจังหวัดสิงห์บุรี"),
+        ("ธนาคา รกรุงไทยจำกัด", "ธนาคารกรุงไทยจำกัด"),
+        ("(แปลงเป็นเลขอาราบิก)", ""),
+        ("25 25 กรกฎาคม 2569", thai_date),
     ]
     _replace_in_document(doc, replacements)
 
@@ -937,16 +1158,16 @@ def _build_exact_procurement_template(purchase):
         left_text = (
             f"ผู้ขาย {company.name}\n"
             f"ที่อยู่ {company.address or '-'}\n"
-            f"โทรศัพท์ {company.phone or '-'}\n"
-            f"เลขประจำตัวผู้เสียภาษี {company.tax_id or '-'}\n"
-            f"เลขที่บัญชีเงินฝากธนาคาร {company.account_no or '-'}\n"
+            f"โทรศัพท์ {company_phone_arabic}\n"
+            f"เลขประจำตัวผู้เสียภาษี {company_tax_arabic}\n"
+            f"เลขที่บัญชีเงินฝากธนาคาร {company_account_arabic}\n"
             f"ชื่อบัญชี {company.account_name or '-'}\n"
             f"ธนาคาร {company.bank_name or '-'}"
             + (f" สาขา {company.bank_branch}" if company.bank_branch else "")
         )
         right_text = (
             f"เลขที่ {purchase.po_number}\n"
-            f"วันที่ {short_date}\n\n"
+            f"วันที่ {thai_date}\n\n"
             "ส่วนราชการ โรงพยาบาลสิงห์บุรี\n"
             "ที่อยู่ ๙๑๗/๓ ตำบลบางพุทรา อำเภอเมืองสิงห์บุรี จังหวัดสิงห์บุรี ๑๖๐๐๐\n"
             "โทรศัพท์ ๐๓๖-๕๒๒๕๐๗"
@@ -968,6 +1189,17 @@ def _build_exact_procurement_template(purchase):
                     f"{value:,.2f}",
                     WD_ALIGN_PARAGRAPH.CENTER,
                 )
+
+    _apply_review_layout(
+        doc,
+        purchase=purchase,
+        profile=profile,
+        company=company,
+        thai_date=thai_date,
+        subtotal=subtotal,
+        vat=vat,
+        total=total,
+    )
 
     return doc
 
