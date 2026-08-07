@@ -984,7 +984,10 @@ def _apply_review_layout(doc, purchase, profile, company, thai_date, subtotal, v
 
 
 def _xml_paragraphs(doc):
-    return doc.element.xpath(".//w:p")
+    # A drawing/text-box can contain its own w:p elements inside an outer w:p.
+    # Work only on leaf paragraphs so we never collapse several visible
+    # text-box lines into one paragraph.
+    return doc.element.xpath(".//w:p[not(.//w:p)]")
 
 
 def _xml_paragraph_text(paragraph_element):
@@ -1132,6 +1135,149 @@ def _fill_purchase_order_calculation_xml(doc, subtotal, vat, total):
                     return
 
 
+
+def _fix_spec_date_xml(doc, purchase, thai_date):
+    """Fix duplicated/old date text on the specification memorandum."""
+    day = str(purchase.document_date.day)
+
+    for paragraph_element in _xml_paragraphs(doc):
+        value = _xml_paragraph_text(paragraph_element)
+        clean = " ".join(value.split())
+
+        # Handles examples such as:
+        # "วันที่ 31 31 กรกฎาคม 2569"
+        # "วันที่ 25 25 กรกฎาคม 2569"
+        duplicated = f"{day} {thai_date}"
+        if "วันที่" in clean and duplicated in value:
+            _set_xml_paragraph_text(
+                paragraph_element,
+                value.replace(duplicated, thai_date),
+                16,
+            )
+
+        # Exact date-only field beside the government letter number.
+        clean = " ".join(_xml_paragraph_text(paragraph_element).split())
+        if clean.startswith("วันที่") and (
+            "/" in clean
+            or clean.endswith("กรกฎาคม 2569")
+            or clean.endswith("กรกฎาคม ๒๕๖๙")
+        ):
+            # Do not touch signature blank date lines.
+            if "........" not in clean:
+                _set_xml_paragraph_text(
+                    paragraph_element,
+                    f"วันที่      {thai_date}",
+                    16,
+                )
+
+
+def _fix_integrity_note_xml(doc, purchase, thai_date):
+    """Preserve the full integrity-form note instead of replacing the whole line."""
+    expected = (
+        f"หมายเหตุ : สำหรับใบสั่งซื้อเลขที่ {purchase.po_number} "
+        f"ลงวันที่ {thai_date}"
+    )
+
+    for paragraph_element in _xml_paragraphs(doc):
+        value = _xml_paragraph_text(paragraph_element)
+        clean = " ".join(value.split())
+
+        if (
+            "หมายเหตุ" in clean
+            and "สำหรับใบสั่งซื้อเลขที่" in clean
+        ):
+            _set_xml_paragraph_text(paragraph_element, expected, 16)
+            return
+
+
+def _fix_original_po_product_row_xml(doc, purchase):
+    """Update the original purchase-order product row stored in text boxes."""
+    if not purchase.lines:
+        return
+
+    line = purchase.lines[0]
+    paragraphs = _xml_paragraphs(doc)
+    texts = [_xml_paragraph_text(p).strip() for p in paragraphs]
+
+    # Use the first matching item in the original PO region only.
+    # A nearby sequence is: item description, quantity, unit, unit price, amount.
+    for index, value in enumerate(texts):
+        if value != line.description:
+            continue
+
+        # Avoid the later generated/spec tables by looking for the original
+        # Thai numeral "๑" shortly before this row.
+        before = " ".join(texts[max(0, index - 8):index])
+        if "๑" not in before and "ลำดับ" not in before:
+            continue
+
+        nearby = list(range(index + 1, min(index + 12, len(paragraphs))))
+        assigned_quantity = False
+        assigned_unit = False
+        assigned_price = False
+        assigned_amount = False
+
+        for j in nearby:
+            current = texts[j]
+            normalized = current.replace(",", "").strip()
+
+            if not current:
+                continue
+
+            if not assigned_quantity:
+                # Template quantity is a simple number such as 10.
+                try:
+                    Decimal(normalized)
+                    _set_xml_paragraph_text(
+                        paragraphs[j],
+                        f"{line.quantity:g}",
+                        16,
+                    )
+                    assigned_quantity = True
+                    continue
+                except Exception:
+                    pass
+
+            if assigned_quantity and not assigned_unit:
+                if current.upper() == line.unit.name.upper() or current.isalpha():
+                    _set_xml_paragraph_text(
+                        paragraphs[j],
+                        line.unit.name,
+                        16,
+                    )
+                    assigned_unit = True
+                    continue
+
+            if assigned_quantity and assigned_unit and not assigned_price:
+                try:
+                    Decimal(normalized)
+                    _set_xml_paragraph_text(
+                        paragraphs[j],
+                        f"{line.unit_price:,.2f}",
+                        16,
+                    )
+                    assigned_price = True
+                    continue
+                except Exception:
+                    pass
+
+            if assigned_price and not assigned_amount:
+                try:
+                    Decimal(normalized)
+                    _set_xml_paragraph_text(
+                        paragraphs[j],
+                        f"{line.amount:,.2f}",
+                        16,
+                    )
+                    assigned_amount = True
+                    break
+                except Exception:
+                    pass
+
+        if assigned_quantity:
+            return
+
+
 def _fix_original_po_xml(
     doc,
     purchase,
@@ -1150,21 +1296,25 @@ def _fix_original_po_xml(
         if "โทรศัพท์" in clean and "แปลงเป็นเลขอาราบิก" in clean:
             _set_xml_paragraph_text(paragraph_element, f"โทรศัพท์   {phone_arabic}", 16)
 
-        if "เลขประจำตัวผู้เสียภาษี" in clean and "แปลงเป็นเลขอาราบิก" in clean:
+        if "เลขประจำตัวผู้เสียภาษี" in clean:
             _set_xml_paragraph_text(
                 paragraph_element,
                 f"เลขประจำตัวผู้เสียภาษี   {tax_arabic}",
                 16,
             )
 
-        if "เลขที่บัญชีเงินฝากธนาคาร" in clean and "แปลงเป็นเลขอาราบิก" in clean:
+        if "เลขที่บัญชีเงินฝากธนาคาร" in clean:
             _set_xml_paragraph_text(
                 paragraph_element,
                 f"เลขที่บัญชีเงินฝากธนาคาร   {account_arabic}",
                 16,
             )
 
-        if "ใบสั่งซื้อเลขที่" in clean:
+        if (
+            clean.startswith("ใบสั่งซื้อเลขที่")
+            and "หมายเหตุ" not in clean
+            and "สำหรับใบสั่งซื้อ" not in clean
+        ):
             _set_xml_paragraph_text(
                 paragraph_element,
                 f"ใบสั่งซื้อเลขที่  {purchase.po_number}",
@@ -1184,6 +1334,33 @@ def _fix_original_po_xml(
                 "บริษัท แปซิฟิค เฮลธ์แคร์(ไทยแลนด์) จำกัด",
             ):
                 updated = updated.replace(old, company.name)
+            if updated != value:
+                _set_xml_paragraph_text(paragraph_element, updated, 16)
+
+
+
+def _fix_request_budget_amount_xml(doc, purchase):
+    total = to_decimal(purchase.total_amount)
+    total_text = f"{total:,.2f}"
+
+    for paragraph_element in _xml_paragraphs(doc):
+        value = _xml_paragraph_text(paragraph_element)
+        clean = " ".join(value.split())
+
+        if (
+            "วงเงินที่จะซื้อ" not in clean
+            and "เงินนอกงบประมาณจาก" in clean
+            and "จำนวน" in clean
+            and "บาท" in clean
+        ):
+            # Replace any money token immediately after "จำนวน".
+            import re
+            updated = re.sub(
+                r"(จำนวน\\s+)[0-9,]+(?:\\.\\d{2})?(\\s*บาท)",
+                rf"\\g<1>{total_text}\\2",
+                value,
+                count=1,
+            )
             if updated != value:
                 _set_xml_paragraph_text(paragraph_element, updated, 16)
 
@@ -1461,6 +1638,24 @@ def _build_exact_procurement_template(purchase):
         phone_arabic=company_phone_arabic,
         tax_arabic=company_tax_arabic,
         account_arabic=company_account_arabic,
+    )
+    _fix_original_po_product_row_xml(
+        doc,
+        purchase=purchase,
+    )
+    _fix_request_budget_amount_xml(
+        doc,
+        purchase=purchase,
+    )
+    _fix_spec_date_xml(
+        doc,
+        purchase=purchase,
+        thai_date=thai_date,
+    )
+    _fix_integrity_note_xml(
+        doc,
+        purchase=purchase,
+        thai_date=thai_date,
     )
     _fix_all_word_xml_layout(
         doc,
