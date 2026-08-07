@@ -982,6 +982,252 @@ def _apply_review_layout(doc, purchase, profile, company, thai_date, subtotal, v
                 )
 
 
+
+def _xml_paragraphs(doc):
+    return doc.element.xpath(".//w:p")
+
+
+def _xml_paragraph_text(paragraph_element):
+    return "".join(node.text or "" for node in paragraph_element.xpath(".//w:t"))
+
+
+def _set_xml_paragraph_text(paragraph_element, value, size=16):
+    text_nodes = paragraph_element.xpath(".//w:t")
+    if text_nodes:
+        text_nodes[0].text = str(value)
+        for node in text_nodes[1:]:
+            node.text = ""
+        return
+
+    run = OxmlElement("w:r")
+    rpr = OxmlElement("w:rPr")
+    fonts = OxmlElement("w:rFonts")
+    for key in ("ascii", "hAnsi", "eastAsia", "cs"):
+        fonts.set(qn(f"w:{key}"), "TH Sarabun New")
+    rpr.append(fonts)
+
+    sz = OxmlElement("w:sz")
+    sz.set(qn("w:val"), str(size * 2))
+    rpr.append(sz)
+    run.append(rpr)
+
+    t = OxmlElement("w:t")
+    t.text = str(value)
+    run.append(t)
+    paragraph_element.append(run)
+
+
+def _replace_all_xml_paragraphs(doc, replacements):
+    for paragraph_element in _xml_paragraphs(doc):
+        original = _xml_paragraph_text(paragraph_element)
+        if not original:
+            continue
+        updated = original
+        for old, new in replacements:
+            old = str(old or "")
+            if old and old in updated:
+                updated = updated.replace(old, str(new or ""))
+        if updated != original:
+            _set_xml_paragraph_text(paragraph_element, updated, 16)
+
+
+def _xml_set_alignment(paragraph_element, value):
+    ppr = paragraph_element.find(qn("w:pPr"))
+    if ppr is None:
+        ppr = OxmlElement("w:pPr")
+        paragraph_element.insert(0, ppr)
+
+    jc = ppr.find(qn("w:jc"))
+    if jc is None:
+        jc = OxmlElement("w:jc")
+        ppr.append(jc)
+    jc.set(qn("w:val"), value)
+
+
+def _xml_set_spacing(paragraph_element, before="0", after="0", line="240"):
+    ppr = paragraph_element.find(qn("w:pPr"))
+    if ppr is None:
+        ppr = OxmlElement("w:pPr")
+        paragraph_element.insert(0, ppr)
+
+    spacing = ppr.find(qn("w:spacing"))
+    if spacing is None:
+        spacing = OxmlElement("w:spacing")
+        ppr.append(spacing)
+
+    spacing.set(qn("w:before"), str(before))
+    spacing.set(qn("w:after"), str(after))
+    spacing.set(qn("w:line"), str(line))
+    spacing.set(qn("w:lineRule"), "auto")
+
+
+def _xml_page_break_before(paragraph_element):
+    ppr = paragraph_element.find(qn("w:pPr"))
+    if ppr is None:
+        ppr = OxmlElement("w:pPr")
+        paragraph_element.insert(0, ppr)
+
+    node = ppr.find(qn("w:pageBreakBefore"))
+    if node is None:
+        node = OxmlElement("w:pageBreakBefore")
+        ppr.append(node)
+    node.set(qn("w:val"), "1")
+
+
+def _fill_budget_xml_block(doc, allocated, previously_used, current_amount, remaining):
+    paragraphs = _xml_paragraphs(doc)
+    texts = [_xml_paragraph_text(p) for p in paragraphs]
+
+    for index, value in enumerate(texts):
+        if "ยอดที่ได้รับจัดสรร" not in value:
+            continue
+
+        value_start = index + 4
+        values = [
+            f"{allocated:,.2f}",
+            f"{previously_used:,.2f}",
+            f"{current_amount:,.2f}",
+            f"{remaining:,.2f}",
+        ]
+
+        for offset, output_value in enumerate(values):
+            target = value_start + offset
+            if target < len(paragraphs):
+                _set_xml_paragraph_text(paragraphs[target], output_value, 16)
+        break
+
+
+def _fill_purchase_order_calculation_xml(doc, subtotal, vat, total):
+    paragraphs = _xml_paragraphs(doc)
+    texts = [_xml_paragraph_text(p) for p in paragraphs]
+
+    for index, value in enumerate(texts):
+        if value.strip() != "รวมเป็นเงิน":
+            continue
+
+        if index + 1 < len(paragraphs):
+            _set_xml_paragraph_text(paragraphs[index + 1], f"{subtotal:,.2f}", 16)
+
+        for vat_index in range(index + 1, min(index + 8, len(paragraphs))):
+            if texts[vat_index].strip() != "ภาษีมูลค่าเพิ่ม":
+                continue
+
+            if vat_index + 1 < len(paragraphs):
+                _set_xml_paragraph_text(paragraphs[vat_index + 1], f"{vat:,.2f}", 16)
+
+            for total_index in range(vat_index + 1, min(vat_index + 8, len(paragraphs))):
+                if texts[total_index].strip() == "รวมเป็นเงินทั้งสิ้น":
+                    if total_index - 1 >= 0:
+                        _set_xml_paragraph_text(
+                            paragraphs[total_index - 1],
+                            f"({baht_text(total)})",
+                            16,
+                        )
+                    if total_index + 1 < len(paragraphs):
+                        _set_xml_paragraph_text(
+                            paragraphs[total_index + 1],
+                            f"{total:,.2f}",
+                            16,
+                        )
+                    return
+
+
+def _fix_original_po_xml(
+    doc,
+    purchase,
+    company,
+    thai_date,
+    phone_arabic,
+    tax_arabic,
+    account_arabic,
+):
+    paragraphs = _xml_paragraphs(doc)
+
+    for i, paragraph_element in enumerate(paragraphs):
+        value = _xml_paragraph_text(paragraph_element)
+        clean = " ".join(value.split())
+
+        if "โทรศัพท์" in clean and "แปลงเป็นเลขอาราบิก" in clean:
+            _set_xml_paragraph_text(paragraph_element, f"โทรศัพท์   {phone_arabic}", 16)
+
+        if "เลขประจำตัวผู้เสียภาษี" in clean and "แปลงเป็นเลขอาราบิก" in clean:
+            _set_xml_paragraph_text(
+                paragraph_element,
+                f"เลขประจำตัวผู้เสียภาษี   {tax_arabic}",
+                16,
+            )
+
+        if "เลขที่บัญชีเงินฝากธนาคาร" in clean and "แปลงเป็นเลขอาราบิก" in clean:
+            _set_xml_paragraph_text(
+                paragraph_element,
+                f"เลขที่บัญชีเงินฝากธนาคาร   {account_arabic}",
+                16,
+            )
+
+        if "ใบสั่งซื้อเลขที่" in clean:
+            _set_xml_paragraph_text(
+                paragraph_element,
+                f"ใบสั่งซื้อเลขที่  {purchase.po_number}",
+                16,
+            )
+
+            for j in range(i + 1, min(i + 5, len(paragraphs))):
+                next_text = " ".join(_xml_paragraph_text(paragraphs[j]).split())
+                if next_text == "วันที่":
+                    _set_xml_paragraph_text(paragraphs[j], f"วันที่  {thai_date}", 16)
+                    break
+
+        if "ได้เสนอราคา" in clean and "โรงพยาบาลสิงห์บุรี" in clean:
+            updated = value
+            for old in (
+                "บริษัท แปซิฟิค เฮลธ์แคร์ (ไทยแลนด์) จำกัด",
+                "บริษัท แปซิฟิค เฮลธ์แคร์(ไทยแลนด์) จำกัด",
+            ):
+                updated = updated.replace(old, company.name)
+            if updated != value:
+                _set_xml_paragraph_text(paragraph_element, updated, 16)
+
+
+def _fix_all_word_xml_layout(doc, purchase, thai_date):
+    for paragraph_element in _xml_paragraphs(doc):
+        value = _xml_paragraph_text(paragraph_element)
+        clean = " ".join(value.split())
+        if not clean:
+            continue
+
+        if clean in {"บันทึกข้อความ", "ใบสั่งซื้อ", "ประกาศจังหวัดสิงห์บุรี"}:
+            _xml_set_alignment(paragraph_element, "center")
+
+        if clean.startswith((
+            "ส่วนราชการ",
+            "ที่ ",
+            "เรื่อง ",
+            "เรียน ",
+            "๑.",
+            "๒.",
+            "๓.",
+            "๔.",
+            "๕.",
+            "๖.",
+        )):
+            _xml_set_spacing(paragraph_element, before="0", after="0", line="240")
+
+        if clean.startswith("๗.") and "การประเมินผลการปฏิบัติงาน" in clean:
+            _xml_page_break_before(paragraph_element)
+            _xml_set_spacing(paragraph_element, before="0", after="0", line="240")
+
+        if "หมายเหตุ" in clean:
+            _xml_set_spacing(paragraph_element, before="0", after="0", line="240")
+
+        duplicated = f"{purchase.document_date.day} {thai_date}"
+        if duplicated in value:
+            _set_xml_paragraph_text(
+                paragraph_element,
+                value.replace(duplicated, thai_date),
+                16,
+            )
+
+
 def _build_exact_procurement_template(purchase):
     """Fill the manually corrected Word master without adding duplicate pages."""
     template_path = Path(__file__).resolve().parent / "templates" / "word" / "purchase_master.docx"
@@ -1047,6 +1293,9 @@ def _build_exact_procurement_template(purchase):
         ("บริษัท พี.เอ็น.โปรดักส์ นครสวรรค์จำกัด", company.name),
         ("บริษัท แปซิฟิค เฮลธ์แคร์ (ไทยแลนด์) จำกัด", company.name),
         ("บริษัท แปซิฟิค เฮลธ์แคร์(ไทยแลนด์) จำกัด", company.name),
+        ("๐๕๖๒๒๒๓๑๒", company_phone_arabic),
+        ("๐๖๐๕๕๒๒๐๐๐๗๙๗", company_tax_arabic),
+        ("๖๒๘๑๒๘๐๙๑๑", company_account_arabic),
         ("๐๕๖๒๒๒๑๑๒", company_phone_arabic),
         ("๐๖๐๕๕๒๒๐๐๐๗๙๗", company_tax_arabic),
         ("ธนาคารกรุงไทยจำกัด (มหาชน)", company.bank_name or "-"),
@@ -1101,6 +1350,7 @@ def _build_exact_procurement_template(purchase):
         ("25 25 กรกฎาคม 2569", thai_date),
     ]
     _replace_in_document(doc, replacements)
+    _replace_all_xml_paragraphs(doc, replacements)
 
     # เติมค่าที่คำนวณแล้วลงใน Text Box ของไฟล์ Word
     _fill_calculated_template_values(
@@ -1189,6 +1439,34 @@ def _build_exact_procurement_template(purchase):
                     f"{value:,.2f}",
                     WD_ALIGN_PARAGRAPH.CENTER,
                 )
+
+    _fill_budget_xml_block(
+        doc,
+        allocated=budget_allocated,
+        previously_used=budget_used,
+        current_amount=budget_this_time,
+        remaining=budget_remaining,
+    )
+    _fill_purchase_order_calculation_xml(
+        doc,
+        subtotal=subtotal,
+        vat=vat,
+        total=total,
+    )
+    _fix_original_po_xml(
+        doc,
+        purchase=purchase,
+        company=company,
+        thai_date=thai_date,
+        phone_arabic=company_phone_arabic,
+        tax_arabic=company_tax_arabic,
+        account_arabic=company_account_arabic,
+    )
+    _fix_all_word_xml_layout(
+        doc,
+        purchase=purchase,
+        thai_date=thai_date,
+    )
 
     _apply_review_layout(
         doc,
