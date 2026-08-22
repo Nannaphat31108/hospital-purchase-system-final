@@ -1,0 +1,9 @@
+{% extends 'base.html' %}{% block content %}
+<h1 class="h3 mb-4">{{ 'แก้ไข' if company.id else 'เพิ่ม' }}ข้อมูลบริษัท</h1>
+<form method="post" class="card"><div class="card-body"><div class="row g-3">
+<div class="col-12"><label class="form-label">ชื่อบริษัท *</label><input class="form-control" name="name" required value="{{ company.name or '' }}"></div>
+<div class="col-12"><label class="form-label">ที่อยู่</label><textarea class="form-control" name="address" rows="3">{{ company.address or '' }}</textarea></div>
+<div class="col-md-6"><label class="form-label">โทรศัพท์</label><input class="form-control" name="phone" value="{{ company.phone or '' }}"></div><div class="col-md-6"><label class="form-label">เลขประจำตัวผู้เสียภาษี</label><input class="form-control" name="tax_id" value="{{ company.tax_id or '' }}"></div>
+<div class="col-md-6"><label class="form-label">ธนาคาร</label><input class="form-control" name="bank_name" value="{{ company.bank_name or '' }}"></div><div class="col-md-6"><label class="form-label">สาขา</label><input class="form-control" name="bank_branch" value="{{ company.bank_branch or '' }}"></div>
+<div class="col-md-6"><label class="form-label">เลขบัญชี</label><input class="form-control" name="account_no" value="{{ company.account_no or '' }}"></div><div class="col-md-6"><label class="form-label">ชื่อบัญชี</label><input class="form-control" name="account_name" value="{{ company.account_name or '' }}"></div>
+</div></div><div class="card-footer text-end"><a class="btn btn-light" href="{{ url_for('main.companies') }}">ยกเลิก</a><button class="btn btn-primary">บันทึก</button></div></form>{% endblock %}
