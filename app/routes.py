@@ -1782,6 +1782,13 @@ def _center_all_garuda_paragraphs(doc):
 
     # Inline pictures inside table cells/text boxes may not appear in
     # doc.paragraphs, so center every leaf paragraph containing a drawing.
+    #
+    # These pictures (the Garuda embedded directly inside the master
+    # template's memo table) never got an explicit paragraph spacing
+    # override, so they were still falling back to the template's default
+    # "Normal" style spacing (10pt after + 1.15 line height). That leftover
+    # gap showed up right under the Garuda emblem on almost every page --
+    # the picture paragraph must be flush against whatever follows it.
     for p in doc.element.xpath(".//w:p[not(.//w:p)]"):
         if not (p.xpath(".//w:drawing") or p.xpath(".//w:pict")):
             continue
@@ -1796,6 +1803,8 @@ def _center_all_garuda_paragraphs(doc):
             jc = OxmlElement("w:jc")
             pPr.append(jc)
         jc.set(qn("w:val"), "center")
+
+        _xml_set_spacing(p, before="0", after="0", line="240")
 
 
 
@@ -1890,6 +1899,13 @@ def _center_all_garuda_paragraphs(doc):
 
     # Inline pictures inside table cells/text boxes may not appear in
     # doc.paragraphs, so center every leaf paragraph containing a drawing.
+    #
+    # These pictures (the Garuda embedded directly inside the master
+    # template's memo table) never got an explicit paragraph spacing
+    # override, so they were still falling back to the template's default
+    # "Normal" style spacing (10pt after + 1.15 line height). That leftover
+    # gap showed up right under the Garuda emblem on almost every page --
+    # the picture paragraph must be flush against whatever follows it.
     for p in doc.element.xpath(".//w:p[not(.//w:p)]"):
         if not (p.xpath(".//w:drawing") or p.xpath(".//w:pict")):
             continue
@@ -1904,6 +1920,8 @@ def _center_all_garuda_paragraphs(doc):
             jc = OxmlElement("w:jc")
             pPr.append(jc)
         jc.set(qn("w:val"), "center")
+
+        _xml_set_spacing(p, before="0", after="0", line="240")
 
 
 
@@ -2002,6 +2020,13 @@ def _center_all_garuda_paragraphs(doc):
 
     # Inline pictures inside table cells/text boxes may not appear in
     # doc.paragraphs, so center every leaf paragraph containing a drawing.
+    #
+    # These pictures (the Garuda embedded directly inside the master
+    # template's memo table) never got an explicit paragraph spacing
+    # override, so they were still falling back to the template's default
+    # "Normal" style spacing (10pt after + 1.15 line height). That leftover
+    # gap showed up right under the Garuda emblem on almost every page --
+    # the picture paragraph must be flush against whatever follows it.
     for p in doc.element.xpath(".//w:p[not(.//w:p)]"):
         if not (p.xpath(".//w:drawing") or p.xpath(".//w:pict")):
             continue
@@ -2016,6 +2041,8 @@ def _center_all_garuda_paragraphs(doc):
             jc = OxmlElement("w:jc")
             pPr.append(jc)
         jc.set(qn("w:val"), "center")
+
+        _xml_set_spacing(p, before="0", after="0", line="240")
 
 
 
