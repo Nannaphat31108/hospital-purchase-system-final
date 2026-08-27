@@ -3179,11 +3179,10 @@ def _remove_trailing_empty_paragraphs(doc):
 
 
 def _add_spec_details(doc, purchase):
-    # Add Garuda Image. This used to point at a developer's own machine
-    # (/Users/gbru/Downloads/...), which never exists once deployed, so the
-    # image silently never got added -- reuse the shared helper (and its
-    # bundled garuda.png) like every other form does instead.
-    _add_garuda(doc, width=Cm(1.27), height=Cm(1.4))
+    # No Garuda emblem on this page: it is a plain attachment/schedule
+    # (รายละเอียดขอบเขตและคุณลักษณะ) rather than a formal บันทึกข้อความ or
+    # ประกาศ, and the customer confirmed the letterhead only belongs on
+    # the pages they marked, not this one.
 
     # Add header text
     _paragraph(doc, "รายละเอียดขอบเขตและคุณลักษณะเวชภัณฑ์มิใช่ยาที่จะซื้อหรือจ้าง", WD_ALIGN_PARAGRAPH.CENTER, True, 16)
