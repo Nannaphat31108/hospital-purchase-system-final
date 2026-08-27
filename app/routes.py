@@ -2053,33 +2053,49 @@ def _remove_blank_line_above_memo(doc):
             parent = p.getparent()
             paragraphs = parent.xpath("./w:p")
             p_idx = paragraphs.index(p)
-            if p_idx > 0:
-                prev = paragraphs[p_idx-1]
+            # Some memo sections stack more than one leftover blank/
+            # whitespace-only paragraph directly above the heading (e.g. a
+            # line of nbsp characters *and* a line of plain spaces). Keep
+            # removing the immediate previous paragraph as long as it is
+            # blank, instead of stopping after the first one, otherwise the
+            # Garuda emblem still ends up with a visible gap under it.
+            while p_idx > 0:
+                prev = paragraphs[p_idx - 1]
                 prev_text = "".join(t.text for t in prev.xpath(".//w:t") if t.text)
-                if not prev_text.strip():
-                    parent.remove(prev)
-            elif parent.tag.endswith("tc"):
+                if prev_text.strip():
+                    break
+                parent.remove(prev)
+                del paragraphs[p_idx - 1]
+                p_idx -= 1
+
+            if p_idx == 0 and parent.tag.endswith("tc"):
                 tc = parent
                 tr = tc.getparent()
                 tbl = tr.getparent()
                 tr_idx = tbl.index(tr)
-                
+
                 prev_tr = None
                 for i in range(tr_idx-1, -1, -1):
                     if tbl[i].tag.endswith("tr"):
                         prev_tr = tbl[i]
                         break
-                        
+
                 if prev_tr is not None:
                     tcs = prev_tr.xpath("./w:tc")
                     if len(tcs) > 0:
                         prev_tc = tcs[0]
-                        prev_paragraphs = prev_tc.xpath("./w:p")
-                        if prev_paragraphs:
+                        while True:
+                            prev_paragraphs = prev_tc.xpath("./w:p")
+                            if not prev_paragraphs:
+                                break
                             last_p = prev_paragraphs[-1]
                             last_p_text = "".join(t.text for t in last_p.xpath(".//w:t") if t.text)
-                            if not last_p_text.strip():
-                                prev_tc.remove(last_p)
+                            has_picture = bool(
+                                last_p.xpath(".//w:drawing") or last_p.xpath(".//w:pict")
+                            )
+                            if last_p_text.strip() or has_picture:
+                                break
+                            prev_tc.remove(last_p)
 
 
 def _remove_dead_default_spacing_paragraphs(doc):
