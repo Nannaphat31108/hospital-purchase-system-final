@@ -2054,6 +2054,42 @@ def _remove_blank_line_above_memo(doc):
                             if not last_p_text.strip():
                                 prev_tc.remove(last_p)
 
+
+def _remove_dead_default_spacing_paragraphs(doc):
+    """Delete leftover blank paragraphs still using Word's default "Normal"
+    style spacing (10pt after + 1.15 line height) instead of the document's
+    compact spacing.
+
+    The master template was originally spaced out by pressing Enter several
+    times between each "บันทึกข้อความ" section instead of using a real page
+    break. Every other paragraph in the template has an explicit compact
+    ``w:spacing`` override, but these blank leftovers never got one, so each
+    still reserves a full default-styled line. Nine of them sit right above
+    the Garuda emblem/heading of the "รายงานผลการพิจารณา" memo, which is the
+    dead space the customer saw pushing that memo (and its table) below the
+    page and onto a third page. ``_apply_customer_procurement_layout`` below
+    already puts an explicit page-break-before on that memo's Garuda
+    paragraph, so removing this leftover padding cannot merge it back onto
+    the previous page -- it only pulls the memo's own content back up so it
+    fits on a single page again.
+    """
+    for paragraph_element in list(doc.element.body):
+        if paragraph_element.tag != qn("w:p"):
+            continue
+        if _xml_paragraph_text(paragraph_element).strip():
+            continue
+        if paragraph_element.xpath(".//w:drawing") or paragraph_element.xpath(".//w:pict"):
+            continue
+
+        p_pr = paragraph_element.find(qn("w:pPr"))
+        spacing = p_pr.find(qn("w:spacing")) if p_pr is not None else None
+        if spacing is not None:
+            # Already has an explicit (intentionally compact) spacing value.
+            continue
+
+        doc.element.body.remove(paragraph_element)
+
+
 def _apply_customer_procurement_layout(doc):
     """Apply the latest customer-marked layout corrections to the Word master.
 
@@ -2216,6 +2252,7 @@ def _build_procurement_pack(purchase):
     )
 
     _remove_blank_line_above_memo(doc)
+    _remove_dead_default_spacing_paragraphs(doc)
     _center_all_garuda_paragraphs(doc)
     _apply_customer_procurement_layout(doc)
     _normalize_document_fonts(doc)
