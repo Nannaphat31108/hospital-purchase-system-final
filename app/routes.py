@@ -588,6 +588,13 @@ def _add_garuda(doc, width=None, height=None):
         p.paragraph_format.space_before = Pt(0)
         p.paragraph_format.space_after = Pt(0)
         p.paragraph_format.line_spacing = 1.0
+        # The document uses a document grid (w:docGrid linePitch) for
+        # consistent printed line spacing, so Word still snaps this
+        # picture-only line to the grid's line pitch and shows a dead gap
+        # underneath it even with spacing at zero above. Disabling grid
+        # snap here matches what the master template's own Garuda
+        # paragraphs already do (see _xml_disable_snap_to_grid).
+        _xml_disable_snap_to_grid(p._element)
         run = p.add_run()
         if width is not None and height is not None:
             run.add_picture(str(path), width=width, height=height)
@@ -1391,6 +1398,33 @@ def _xml_set_spacing(paragraph_element, before="0", after="0", line="240"):
     spacing.set(qn("w:lineRule"), "auto")
 
 
+def _xml_disable_snap_to_grid(paragraph_element):
+    """Turn off "Snap to grid" (w:snapToGrid) for one paragraph.
+
+    The document sections use a document grid (``w:docGrid w:linePitch``)
+    for consistent printed line spacing. When that is on, Word still
+    vertically snaps every line -- including a line holding only a picture
+    -- to the next multiple of the grid's line pitch, no matter what
+    explicit ``w:spacing`` the paragraph carries. A picture whose height
+    isn't an exact multiple of that pitch then renders with a visible dead
+    gap underneath it in Word even though the paragraph spacing is already
+    zero and other renderers (which don't emulate this quirk) show no gap
+    at all. Only the paragraphs the master template's own author already
+    fixed this way skip the gap; every other Garuda/heading paragraph must
+    get the same explicit override.
+    """
+    ppr = paragraph_element.find(qn("w:pPr"))
+    if ppr is None:
+        ppr = OxmlElement("w:pPr")
+        paragraph_element.insert(0, ppr)
+
+    snap = ppr.find(qn("w:snapToGrid"))
+    if snap is None:
+        snap = OxmlElement("w:snapToGrid")
+        ppr.insert(0, snap)
+    snap.set(qn("w:val"), "0")
+
+
 def _xml_page_break_before(paragraph_element):
     ppr = paragraph_element.find(qn("w:pPr"))
     if ppr is None:
@@ -1765,6 +1799,13 @@ def _center_all_garuda_paragraphs(doc):
             paragraph.paragraph_format.first_line_indent = Cm(0)
             paragraph.paragraph_format.space_before = Pt(0)
             paragraph.paragraph_format.space_after = Pt(0)
+            # The document uses a document grid (see _xml_disable_snap_to_grid),
+            # which snaps every line -- including a picture-only line -- to
+            # the grid's line pitch in Word regardless of the paragraph's own
+            # zero spacing. Without this, Word (unlike other renderers) shows
+            # a dead gap under the emblem even though the file looks correct
+            # everywhere else.
+            _xml_disable_snap_to_grid(paragraph._element)
 
     # Floating pictures: convert to inline so they are centered by paragraph alignment
     for anchor in doc.element.xpath(".//wp:anchor"):
@@ -1805,6 +1846,7 @@ def _center_all_garuda_paragraphs(doc):
         jc.set(qn("w:val"), "center")
 
         _xml_set_spacing(p, before="0", after="0", line="240")
+        _xml_disable_snap_to_grid(p)
 
 
 
@@ -1882,6 +1924,13 @@ def _center_all_garuda_paragraphs(doc):
             paragraph.paragraph_format.first_line_indent = Cm(0)
             paragraph.paragraph_format.space_before = Pt(0)
             paragraph.paragraph_format.space_after = Pt(0)
+            # The document uses a document grid (see _xml_disable_snap_to_grid),
+            # which snaps every line -- including a picture-only line -- to
+            # the grid's line pitch in Word regardless of the paragraph's own
+            # zero spacing. Without this, Word (unlike other renderers) shows
+            # a dead gap under the emblem even though the file looks correct
+            # everywhere else.
+            _xml_disable_snap_to_grid(paragraph._element)
 
     # Floating pictures: convert to inline so they are centered by paragraph alignment
     for anchor in doc.element.xpath(".//wp:anchor"):
@@ -1922,6 +1971,7 @@ def _center_all_garuda_paragraphs(doc):
         jc.set(qn("w:val"), "center")
 
         _xml_set_spacing(p, before="0", after="0", line="240")
+        _xml_disable_snap_to_grid(p)
 
 
 
@@ -2003,6 +2053,13 @@ def _center_all_garuda_paragraphs(doc):
             paragraph.paragraph_format.first_line_indent = Cm(0)
             paragraph.paragraph_format.space_before = Pt(0)
             paragraph.paragraph_format.space_after = Pt(0)
+            # The document uses a document grid (see _xml_disable_snap_to_grid),
+            # which snaps every line -- including a picture-only line -- to
+            # the grid's line pitch in Word regardless of the paragraph's own
+            # zero spacing. Without this, Word (unlike other renderers) shows
+            # a dead gap under the emblem even though the file looks correct
+            # everywhere else.
+            _xml_disable_snap_to_grid(paragraph._element)
 
     # Floating pictures: convert to inline so they are centered by paragraph alignment
     for anchor in doc.element.xpath(".//wp:anchor"):
@@ -2043,6 +2100,7 @@ def _center_all_garuda_paragraphs(doc):
         jc.set(qn("w:val"), "center")
 
         _xml_set_spacing(p, before="0", after="0", line="240")
+        _xml_disable_snap_to_grid(p)
 
 
 
@@ -2163,6 +2221,13 @@ def _apply_customer_procurement_layout(doc):
                         paragraph.paragraph_format.space_before = Pt(0)
                         paragraph.paragraph_format.space_after = Pt(0)
                         paragraph.paragraph_format.line_spacing = 1.0
+                        # Keep this heading's line off the document grid too
+                        # (see _xml_disable_snap_to_grid) -- when the memo's
+                        # Garuda and heading sit in separate table rows
+                        # (unlike the first memo, where both share one row)
+                        # a grid-snapped heading line still renders with a
+                        # gap above it in Word even with spacing at zero.
+                        _xml_disable_snap_to_grid(paragraph._element)
 
             if row_index == 0:
                 continue
@@ -3114,14 +3179,11 @@ def _remove_trailing_empty_paragraphs(doc):
 
 
 def _add_spec_details(doc, purchase):
-    # Add Garuda Image
-    image_path = Path("/Users/gbru/Downloads/project/image.png")
-    if image_path.exists():
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        p.paragraph_format.space_after = Pt(0)
-        run = p.add_run()
-        run.add_picture(str(image_path), width=Cm(1.27), height=Cm(1.4))
+    # Add Garuda Image. This used to point at a developer's own machine
+    # (/Users/gbru/Downloads/...), which never exists once deployed, so the
+    # image silently never got added -- reuse the shared helper (and its
+    # bundled garuda.png) like every other form does instead.
+    _add_garuda(doc, width=Cm(1.27), height=Cm(1.4))
 
     # Add header text
     _paragraph(doc, "รายละเอียดขอบเขตและคุณลักษณะเวชภัณฑ์มิใช่ยาที่จะซื้อหรือจ้าง", WD_ALIGN_PARAGRAPH.CENTER, True, 16)
