@@ -1,0 +1,202 @@
+{% extends 'base.html' %}{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4"><div><h1 class="h3 mb-1">{{ 'แก้ไข' if purchase.id else 'สร้าง' }}ใบสั่งซื้อ</h1><p class="text-muted mb-0">เพิ่มได้สูงสุด 6 รายการ</p></div></div>
+<form method="post" id="purchase-form">
+<div class="card mb-3"><div class="card-header fw-bold">ข้อมูลเอกสาร</div><div class="card-body"><div class="row g-3">
+<div class="col-md-4"><label class="form-label">เลขที่ใบสั่งซื้อ *</label><input class="form-control" required name="po_number" value="{{ purchase.po_number or '' }}" placeholder="เช่น PO-69-0200001"></div>
+<div class="col-md-4"><label class="form-label">วันที่ *</label><input type="date" class="form-control" required name="document_date" value="{{ purchase.document_date.isoformat() if purchase.document_date else today }}"></div>
+<div class="col-md-4"><label class="form-label">บริษัท *</label><select class="form-select searchable-select company-search-select" data-search-placeholder="พิมพ์ชื่อบริษัท เช่น ก" required name="company_id"><option value="">-- เลือกบริษัท --</option>{% for c in companies %}<option value="{{ c.id }}" {% if purchase.company_id==c.id %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select></div>
+<div class="col-md-4"><label class="form-label">ข้อมูลราชการ *</label><select class="form-select" name="government_profile_id" required><option value="">-- เลือกข้อมูลราชการ --</option>{% for p in government_profiles %}<option value="{{ p.id }}" {% if purchase.government_profile_id==p.id %}selected{% endif %}>{{ p.name }}</option>{% endfor %}</select></div>
+<div class="col-md-4"><label class="form-label">ประเภทพัสดุ *</label><select class="form-select" name="procurement_type">{% for o in dropdowns.get('procurement_type',[]) %}<option {% if purchase.procurement_type==o.value %}selected{% endif %}>{{ o.value }}</option>{% endfor %}</select></div>
+<div class="col-md-4"><label class="form-label">เหตุผลความจำเป็น</label><select class="form-select" name="necessity_reason">{% for o in dropdowns.get('necessity_reason',[]) %}<option {% if purchase.necessity_reason==o.value %}selected{% endif %}>{{ o.value }}</option>{% endfor %}</select></div>
+
+<div class="col-md-4"><label class="form-label">เลขที่โครงการ</label><input class="form-control" name="project_number" value="{{ purchase.project_number or '' }}"></div><div class="col-md-4"><label class="form-label">เลขคุมสัญญา</label><input class="form-control" name="contract_control_number" value="{{ purchase.contract_control_number or '' }}"></div><div class="col-md-4"><label class="form-label">กำหนดส่งมอบ (วัน)</label><input type="number" class="form-control" name="delivery_days" value="{{ purchase.delivery_days or 30 }}"></div>
+<div class="col-md-6"><label class="form-label">สถานที่ส่งมอบ</label><select class="form-select" name="delivery_place">{% for o in dropdowns.get('delivery_place',[]) %}<option {% if purchase.delivery_place==o.value %}selected{% endif %}>{{ o.value }}</option>{% endfor %}</select></div><div class="col-md-6"><label class="form-label">แหล่งงบประมาณ</label><select class="form-select" name="budget_source">{% for o in dropdowns.get('budget_source',[]) %}<option {% if purchase.budget_source==o.value %}selected{% endif %}>{{ o.value }}</option>{% endfor %}</select></div><div class="col-md-4"><label class="form-label">ยอดที่ได้รับจัดสรร</label><input type="number" step="0.01" class="form-control" name="budget_allocated" value="{{ purchase.budget_allocated or 0 }}"></div><div class="col-md-4"><label class="form-label">ยอดที่จัดหาแล้ว</label><input type="number" step="0.01" class="form-control" name="budget_previously_used" value="{{ purchase.budget_previously_used or 0 }}"></div><div class="col-md-4"><label class="form-label">ยอดที่จัดหาครั้งนี้</label><input class="form-control" value="คำนวณจากรายการอัตโนมัติ" disabled></div><div class="col-12"><label class="form-label">หมายเหตุ</label><textarea class="form-control" name="note">{{ purchase.note or '' }}</textarea></div>
+</div></div></div>
+<div class="card mb-3"><div class="card-header d-flex justify-content-between"><span class="fw-bold">รายการเวชภัณฑ์</span><span class="text-muted">เลือกสินค้าแล้วระบบจะดึงราคา หน่วย และ Spec</span></div><div class="card-body p-0"><div class="table-responsive"><table class="table align-middle mb-0 item-table"><thead><tr><th style="width:55px">ลำดับ</th><th style="min-width:270px">รายการ</th><th style="min-width:220px">ชื่อที่แสดง</th><th style="width:120px">จำนวน</th><th style="width:150px">หน่วย</th><th style="width:150px">ราคาต่อหน่วย</th><th style="width:150px" class="text-end">ยอดเงิน</th></tr></thead><tbody>
+{% for n in range(1,7) %}{% set line = purchase.lines[n-1] if purchase.lines|length >= n else None %}<tr><td class="text-center">{{ n }}</td><td><select class="form-select item-select searchable-select item-search-select" data-search-placeholder="พิมพ์ชื่อเวชภัณฑ์" name="item_id_{{ n }}" data-row="{{ n }}"><option value="">-- เลือกรายการ --</option>{% for i in items %}<option value="{{ i.id }}" {% if line and line.item_id==i.id %}selected{% endif %}>{{ i.name }}</option>{% endfor %}</select><textarea class="form-control form-control-sm mt-1 spec-input" name="specification_{{ n }}" rows="2" placeholder="Spec">{{ line.specification if line else '' }}</textarea></td><td><input class="form-control description-input" name="description_{{ n }}" value="{{ line.description if line else '' }}"></td><td><input type="number" min="0" step="0.01" class="form-control qty-input" name="quantity_{{ n }}" value="{{ line.quantity if line else '' }}"></td><td><select class="form-select unit-input" name="unit_id_{{ n }}"><option value="">--</option>{% for u in units %}<option value="{{ u.id }}" {% if line and line.unit_id==u.id %}selected{% endif %}>{{ u.name }}</option>{% endfor %}</select></td><td><input type="number" min="0" step="0.01" class="form-control price-input" name="unit_price_{{ n }}" value="{{ line.unit_price if line else '' }}"></td><td class="text-end fw-bold amount-cell">{{ line.amount|money if line else '0.00' }}</td></tr>{% endfor %}
+</tbody><tfoot><tr><th colspan="6" class="text-end">ยอดเงินรวม</th><th class="text-end fs-5" id="grand-total">{{ purchase.total_amount|money }}</th></tr></tfoot></table></div></div></div>
+<div class="text-end mb-5"><a class="btn btn-light" href="{{ url_for('main.purchases') }}">ยกเลิก</a><button class="btn btn-primary btn-lg">บันทึกเอกสาร</button></div></form>
+{% endblock %}
+{% block scripts %}
+<style>
+.search-select-native{position:absolute!important;left:0;bottom:0;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important;}
+.search-select-menu{position:absolute;z-index:1080;top:calc(100% + 4px);left:0;right:0;max-height:280px;overflow-y:auto;background:#fff;border:1px solid rgba(0,0,0,.18);border-radius:.5rem;box-shadow:0 .5rem 1rem rgba(0,0,0,.15);padding:.25rem;}
+.search-select-option{display:block;width:100%;border:0;background:transparent;text-align:left;padding:.55rem .7rem;border-radius:.35rem;line-height:1.35;}
+.search-select-option:hover,.search-select-option.active{background:#f1f3f5;}
+.search-select-empty{padding:.7rem;color:#6c757d;}
+.search-select-input{padding-right:2.2rem;background-image:linear-gradient(45deg,transparent 50%,#6c757d 50%),linear-gradient(135deg,#6c757d 50%,transparent 50%);background-position:calc(100% - 14px) 50%,calc(100% - 9px) 50%;background-size:5px 5px,5px 5px;background-repeat:no-repeat;}
+</style>
+<script>
+const money = n => Number(n || 0).toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2});
+function calculate(){let total=0;document.querySelectorAll('.item-table tbody tr').forEach(row=>{const q=parseFloat(row.querySelector('.qty-input').value)||0;const p=parseFloat(row.querySelector('.price-input').value)||0;const a=q*p;row.querySelector('.amount-cell').textContent=money(a);total+=a;});document.getElementById('grand-total').textContent=money(total);}
+document.querySelectorAll('.qty-input,.price-input').forEach(el=>el.addEventListener('input',calculate));
+
+// Searchable dropdown: พิมพ์ตัวอักษรเพื่อกรองบริษัท/เวชภัณฑ์ทันที
+function normalizeSearchText(value){
+  return (value || '').toLocaleLowerCase('th-TH').replace(/\s+/g,' ').trim();
+}
+function companySearchText(value){
+  const full = normalizeSearchText(value);
+  // ให้พิมพ์ชื่อจริงได้โดยไม่จำเป็นต้องพิมพ์คำนำหน้า "บริษัท/หจก./บจก."
+  const stripped = full.replace(/^(บริษัท\s+|ห้างหุ้นส่วนจำกัด\s+|หจก\.?\s*|บจก\.?\s*)/,'');
+  return {full, stripped};
+}
+function enhanceSearchableSelect(select){
+  if(select.dataset.searchEnhanced === '1') return;
+  select.dataset.searchEnhanced = '1';
+
+  const isCompany = select.classList.contains('company-search-select');
+  const placeholder = select.dataset.searchPlaceholder || 'พิมพ์เพื่อค้นหา';
+  const options = Array.from(select.options).filter(o => o.value).map(o => ({
+    value:o.value, label:o.textContent.trim()
+  }));
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'search-select-wrap position-relative';
+  select.parentNode.insertBefore(wrapper, select);
+  wrapper.appendChild(select);
+
+  // เก็บ select จริงไว้เพื่อ submit ค่า id เดิม แต่ใช้ช่องพิมพ์เป็นหน้าตาให้ผู้ใช้
+  select.classList.add('search-select-native');
+  if(select.required){
+    select.dataset.wasRequired = '1';
+    select.required = false;
+  }
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'form-control search-select-input';
+  input.placeholder = placeholder;
+  input.autocomplete = 'off';
+  input.setAttribute('role','combobox');
+  input.setAttribute('aria-autocomplete','list');
+  input.setAttribute('aria-expanded','false');
+  if(select.dataset.wasRequired === '1') input.required = true;
+  const selected = select.options[select.selectedIndex];
+  if(selected && selected.value) input.value = selected.textContent.trim();
+
+  const menu = document.createElement('div');
+  menu.className = 'search-select-menu';
+  menu.setAttribute('role','listbox');
+  menu.hidden = true;
+  wrapper.appendChild(input);
+  wrapper.appendChild(menu);
+
+  let currentResults = [];
+  let activeIndex = -1;
+
+  function rankOptions(query){
+    const q = normalizeSearchText(query);
+    if(!q) return options.slice(0,80);
+    const starts = [], contains = [];
+    options.forEach(opt => {
+      const full = normalizeSearchText(opt.label);
+      const texts = isCompany ? companySearchText(opt.label) : {full, stripped:full};
+      const isStart = texts.stripped.startsWith(q) || texts.full.startsWith(q);
+      const isContains = texts.stripped.includes(q) || texts.full.includes(q);
+      if(isStart) starts.push(opt);
+      else if(isContains) contains.push(opt);
+    });
+    return starts.concat(contains).slice(0,80);
+  }
+
+  function choose(opt){
+    select.value = opt.value;
+    input.value = opt.label;
+    input.setCustomValidity('');
+    closeMenu();
+    select.dispatchEvent(new Event('change',{bubbles:true}));
+  }
+
+  function render(query){
+    currentResults = rankOptions(query);
+    activeIndex = -1;
+    menu.innerHTML = '';
+    if(!currentResults.length){
+      const empty = document.createElement('div');
+      empty.className = 'search-select-empty';
+      empty.textContent = 'ไม่พบข้อมูลที่ตรงกับที่พิมพ์';
+      menu.appendChild(empty);
+    } else {
+      currentResults.forEach((opt,index) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'search-select-option';
+        btn.textContent = opt.label;
+        btn.setAttribute('role','option');
+        btn.addEventListener('mousedown',e=>e.preventDefault());
+        btn.addEventListener('click',()=>choose(opt));
+        menu.appendChild(btn);
+      });
+    }
+    menu.hidden = false;
+    input.setAttribute('aria-expanded','true');
+  }
+
+  function closeMenu(){
+    menu.hidden = true;
+    input.setAttribute('aria-expanded','false');
+    activeIndex = -1;
+  }
+
+  function updateActive(){
+    const nodes = menu.querySelectorAll('.search-select-option');
+    nodes.forEach((node,i)=>node.classList.toggle('active',i===activeIndex));
+    if(nodes[activeIndex]) nodes[activeIndex].scrollIntoView({block:'nearest'});
+  }
+
+  input.addEventListener('focus',()=>render(input.value));
+  input.addEventListener('input',()=>{
+    const typed = normalizeSearchText(input.value);
+    const selectedOpt = options.find(o=>o.value===select.value);
+    if(!selectedOpt || normalizeSearchText(selectedOpt.label)!==typed) select.value='';
+    input.setCustomValidity('');
+    render(input.value);
+  });
+  input.addEventListener('keydown',e=>{
+    if(menu.hidden && (e.key==='ArrowDown' || e.key==='ArrowUp')) render(input.value);
+    if(e.key==='ArrowDown'){ e.preventDefault(); activeIndex=Math.min(activeIndex+1,currentResults.length-1); updateActive(); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); activeIndex=Math.max(activeIndex-1,0); updateActive(); }
+    else if(e.key==='Enter' && !menu.hidden && activeIndex>=0){ e.preventDefault(); choose(currentResults[activeIndex]); }
+    else if(e.key==='Escape'){ closeMenu(); }
+  });
+  input.addEventListener('blur',()=>{
+    setTimeout(()=>{
+      const exact = options.find(o=>normalizeSearchText(o.label)===normalizeSearchText(input.value));
+      if(exact && !select.value) choose(exact);
+      if(select.dataset.wasRequired==='1' && !select.value){
+        input.setCustomValidity('กรุณาเลือกบริษัทจากรายการ');
+      }
+      closeMenu();
+    },120);
+  });
+
+  document.addEventListener('click',e=>{ if(!wrapper.contains(e.target)) closeMenu(); });
+}
+
+document.querySelectorAll('.searchable-select').forEach(enhanceSearchableSelect);
+
+document.querySelectorAll('.item-select').forEach(select=>select.addEventListener('change',async function(){
+  if(!this.value)return;
+  const row=this.closest('tr');
+  const response=await fetch(`/api/items/${this.value}`);
+  const item=await response.json();
+  row.querySelector('.description-input').value=item.name;
+  row.querySelector('.price-input').value=item.price;
+  row.querySelector('.unit-input').value=item.unit_id;
+  row.querySelector('.spec-input').value=item.specification;
+  calculate();
+}));
+
+document.getElementById('purchase-form').addEventListener('submit',function(e){
+  const company = this.querySelector('select[name="company_id"]');
+  const companyInput = company.closest('.search-select-wrap')?.querySelector('.search-select-input');
+  if(companyInput && !company.value){
+    e.preventDefault();
+    companyInput.setCustomValidity('กรุณาพิมพ์และเลือกบริษัทจากรายการ');
+    companyInput.reportValidity();
+    companyInput.focus();
+  }
+});
+calculate();
+</script>{% endblock %}

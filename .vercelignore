@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.db
+instance/
+.env
+.venv/
+venv/
+*.zip
+.DS_Store
+/*.docx
+Screenshot *.png
+patch_*.py
+fix_*.py
+test_*.py
+get_*.py

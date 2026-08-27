@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="h3">ใบสั่งซื้อ {{ purchase.po_number }}</h1>
+    <p class="text-muted">{{ purchase.company.name }} · {{ purchase.document_date.strftime('%d/%m/%Y') }}</p>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a class="btn btn-outline-warning" href="{{ url_for('main.purchase_form', purchase_id=purchase.id) }}">แก้ไข</a>
+    <a class="btn btn-success" href="{{ url_for('main.export_word', purchase_id=purchase.id, form_type='all') }}">ดาวน์โหลด Word ทั้งหมด</a>
+  </div>
+</div>
+<div class="alert alert-info"><b>หัวข้อเอกสาร:</b> {{ purchase.procurement_subject }}<br><b>ส่วนราชการ:</b> {{ purchase.government_profile.department_text if purchase.government_profile else '-' }}<br><b>ยอดคงเหลือ:</b> {{ purchase.remaining_budget|money }}</div><div class="alert alert-success">ข้อมูลบริษัท หน่วย เวชภัณฑ์ และใบสั่งซื้อเก็บใน PostgreSQL ของ Render และไม่ถูกลบเมื่อ Deploy ใหม่ตามปกติ</div>
+<div class="row g-3 mb-3">
+  <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="text-muted">บริษัท</div><div class="fw-bold">{{ purchase.company.name }}</div><div>{{ purchase.company.address }}</div></div></div></div>
+  <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="text-muted">เลขที่โครงการ</div><div class="fw-bold">{{ purchase.project_number or '-' }}</div><div class="text-muted mt-2">เลขคุมสัญญา</div><div>{{ purchase.contract_control_number or '-' }}</div></div></div></div>
+  <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="text-muted">ยอดรวม</div><div class="display-6 fw-bold text-primary">{{ purchase.total_amount|money }}</div><div>{{ baht_text(purchase.total_amount) }}</div></div></div></div>
+</div>
+<div class="card mb-3"><div class="table-responsive"><table class="table mb-0"><thead><tr><th>ลำดับ</th><th>รายการ</th><th class="text-end">จำนวน</th><th>หน่วย</th><th class="text-end">ราคา</th><th class="text-end">ยอดเงิน</th></tr></thead><tbody>{% for line in purchase.lines %}<tr><td>{{ line.line_no }}</td><td>{{ line.description }}{% if line.specification %}<div class="small text-muted">{{ line.specification }}</div>{% endif %}</td><td class="text-end">{{ line.quantity }}</td><td>{{ line.unit.name }}</td><td class="text-end">{{ line.unit_price|money }}</td><td class="text-end">{{ line.amount|money }}</td></tr>{% endfor %}</tbody></table></div></div>
+
+
+<h2 class="h5 mt-4">ส่งออก Excel</h2>
+<div class="d-flex gap-2 flex-wrap mb-3">
+  <a class="btn btn-success"
+     href="{{ url_for('main.export_excel_all_tables', purchase_id=purchase.id) }}">
+    Excel ทุกตาราง — แยกคนละ Sheet
+  </a>
+
+  <a class="btn btn-outline-success"
+     target="_blank"
+     href="{{ url_for('main.excel_table_index', purchase_id=purchase.id) }}">
+    ดูรายการตารางทั้งหมด
+  </a>
+</div>
+
+<div class="alert alert-light border">
+  ถ้าต้องการดาวน์โหลดแยกทีละตาราง ให้เปิด “ดูรายการตารางทั้งหมด”
+  แล้วใช้ URL ของ table_no ที่ต้องการ
+</div>
+
+<h2 class="h5 mt-4">ส่งออก Word — ฟอร์ม 8 แบบ (TH Sarabun New 16 pt)</h2>
+<div class="row g-2 mb-3">
+  <div class="col-md-6 col-xl-3"><a class="btn btn-success w-100" href="{{ url_for('main.export_word', purchase_id=purchase.id, form_type='po_single') }}">1. ใบสั่งซื้อ 1 รายการ</a></div>
+  <div class="col-md-6 col-xl-3"><a class="btn btn-success w-100" href="{{ url_for('main.export_word', purchase_id=purchase.id, form_type='po_multiple') }}">2. ใบสั่งซื้อหลายรายการ</a></div>
+  <div class="col-md-6 col-xl-3"><a class="btn btn-success w-100" href="{{ url_for('main.export_word', purchase_id=purchase.id, form_type='spec') }}">3. แบบกำหนด Spec</a></div>
+  <div class="col-md-6 col-xl-3"><a class="btn btn-success w-100" href="{{ url_for('main.export_word', purchase_id=purchase.id, form_type='receipt_single') }}">4. ใบตรวจรับ 1 รายการ</a></div>
+  <div class="col-md-6 col-xl-3"><a class="btn btn-success w-100" href="{{ url_for('main.export_word', purchase_id=purchase.id, form_type='receipt_two') }}">5. ใบตรวจรับ 2 รายการ</a></div>
+  <div class="col-md-6 col-xl-3"><a class="btn btn-success w-100" href="{{ url_for('main.export_word', purchase_id=purchase.id, form_type='receipt_multiple') }}">6. ใบตรวจรับมากกว่า 2 รายการ</a></div>
+  <div class="col-md-6 col-xl-3"><a class="btn btn-success w-100" href="{{ url_for('main.export_word', purchase_id=purchase.id, form_type='integrity') }}">7. แบบแสดงความบริสุทธิ์ใจ</a></div>
+  <div class="col-md-6 col-xl-3"><a class="btn btn-success w-100" href="{{ url_for('main.export_word', purchase_id=purchase.id, form_type='procurement_pack') }}">8. ชุดรายงานจัดซื้อ</a></div>
+</div>
+<div class="d-flex gap-2 flex-wrap">
+  <a class="btn btn-primary" href="{{ url_for('main.export_word', purchase_id=purchase.id, form_type='all') }}">Word ทุกฟอร์มรวมไฟล์เดียว</a>
+  <a class="btn btn-outline-primary" target="_blank" href="{{ url_for('main.print_form', purchase_id=purchase.id, form_type='po') }}">ดูใบสั่งซื้อก่อนพิมพ์</a>
+  <a class="btn btn-outline-primary" target="_blank" href="{{ url_for('main.print_form', purchase_id=purchase.id, form_type='spec') }}">ดู Spec ก่อนพิมพ์</a>
+  <form method="post" action="{{ url_for('main.purchase_toggle', purchase_id=purchase.id) }}"><button class="btn btn-outline-{{ 'danger' if purchase.active else 'success' }}">{{ 'ปิดใช้งานเอกสาร' if purchase.active else 'เปิดใช้งานเอกสาร' }}</button></form>
+</div>
+{% endblock %}
