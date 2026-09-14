@@ -44,7 +44,7 @@ NUMBER_FONT_NAME = "TH Sarabun New"
 
 @main_bp.app_template_filter("money")
 def money(value):
-    return f"{to_decimal(value):,.2f}"
+    return f"{to_decimal(value):,.0f}"
 
 
 @main_bp.app_context_processor
@@ -682,7 +682,7 @@ def _add_purchase_order(doc, purchase):
         table.rows[0].cells[i].width = widths[i]
     for line in purchase.lines:
         cells = table.add_row().cells
-        values = [line.line_no, line.description, f"{line.quantity:g}", line.unit.name, f"{line.unit_price:,.2f}", f"{line.amount:,.2f}"]
+        values = [line.line_no, line.description, f"{line.quantity:g}", line.unit.name, f"{line.unit_price:,.0f}", f"{line.amount:,.0f}"]
         for i, value in enumerate(values):
             cells[i].width = widths[i]
             align = WD_ALIGN_PARAGRAPH.LEFT if i == 1 else (WD_ALIGN_PARAGRAPH.RIGHT if i >= 4 else WD_ALIGN_PARAGRAPH.CENTER)
@@ -694,7 +694,7 @@ def _add_purchase_order(doc, purchase):
         merged = cells[0].merge(cells[3])
         _set_cell_text(merged, f"({baht_text(purchase.total_amount)})" if label == "รวมเป็นเงิน" else "", bold=True, align=WD_ALIGN_PARAGRAPH.CENTER)
         _set_cell_text(cells[4], label, bold=True, align=WD_ALIGN_PARAGRAPH.RIGHT)
-        _set_cell_text(cells[5], f"{value:,.2f}", bold=(label == "รวมเป็นเงินทั้งสิ้น"), align=WD_ALIGN_PARAGRAPH.RIGHT)
+        _set_cell_text(cells[5], f"{value:,.0f}", bold=(label == "รวมเป็นเงินทั้งสิ้น"), align=WD_ALIGN_PARAGRAPH.RIGHT)
 
     _paragraph(doc, "การซื้ออยู่ภายใต้เงื่อนไขต่อไปนี้", bold=True)
     conditions = [
@@ -715,7 +715,7 @@ def _add_purchase_order(doc, purchase):
 
     _paragraph(doc, "หมายเหตุ", bold=True)
     _paragraph(doc, "	๑. การติดอากรแสตมป์ให้เป็นไปตามประมวลกฎหมายรัษฎากร หากต้องการให้ใบสั่งซื้อมีผลตามกฎหมาย")
-    _paragraph(doc, f"	๒. ใบสั่งซื้อนี้อ้างอิงตามเลขที่โครงการ {purchase.project_number or '........................'} ซื้อพัสดุจำนวน {len(purchase.lines)} รายการ เป็นเงิน {purchase.total_amount:,.2f} บาท ({baht_text(purchase.total_amount)}) โดยวิธีเฉพาะเจาะจง")
+    _paragraph(doc, f"	๒. ใบสั่งซื้อนี้อ้างอิงตามเลขที่โครงการ {purchase.project_number or '........................'} ซื้อพัสดุจำนวน {len(purchase.lines)} รายการ เป็นเงิน {purchase.total_amount:,.0f} บาท ({baht_text(purchase.total_amount)}) โดยวิธีเฉพาะเจาะจง")
     _paragraph(doc, "")
     _paragraph(doc, "")
     _paragraph(doc, "\t\t\t\tลงชื่อ ................................................ ผู้สั่งซื้อ\n\t\t\t\t(................................................)\n\t\t\t\tหัวหน้าเจ้าหน้าที่\n\t\t\t\tวันที่ ................................................", WD_ALIGN_PARAGRAPH.CENTER)
@@ -726,7 +726,7 @@ def _add_purchase_order(doc, purchase):
     _paragraph(doc, f"เลขที่โครงการ {purchase.project_number or '........................'}")
     _paragraph(doc, f"เลขคุมสัญญา {purchase.contract_control_number or '........................'}")
 
-def _add_spec(doc, purchase):
+def _add_spec(doc, purchase, include_details=True):
     _add_garuda(doc)
     _paragraph(doc, "บันทึกข้อความ", WD_ALIGN_PARAGRAPH.CENTER, True, 16)
     _paragraph(doc, "")
@@ -749,16 +749,39 @@ def _add_spec(doc, purchase):
         table.rows[0].cells[i].width = widths[i]
     for line in purchase.lines:
         cells = table.add_row().cells
-        values = [line.line_no, line.description, f"{line.quantity:g} {line.unit.name}", f"{line.unit_price:,.2f}", f"{line.amount:,.2f}"]
+        values = [line.line_no, line.description, f"{line.quantity:g} {line.unit.name}", f"{line.unit_price:,.0f}", f"{line.amount:,.0f}"]
         for i, value in enumerate(values):
             cells[i].width = widths[i]
             _set_cell_text(cells[i], value, align=WD_ALIGN_PARAGRAPH.LEFT if i == 1 else WD_ALIGN_PARAGRAPH.CENTER, size=14)
     cells = table.add_row().cells
     _set_cell_text(cells[1], f"({baht_text(purchase.total_amount)})", True, WD_ALIGN_PARAGRAPH.CENTER, size=14)
-    _set_cell_text(cells[4], f"{purchase.total_amount:,.2f}", True, WD_ALIGN_PARAGRAPH.RIGHT, size=14)
+    _set_cell_text(cells[4], f"{purchase.total_amount:,.0f}", True, WD_ALIGN_PARAGRAPH.RIGHT, size=14)
     
     _paragraph(doc, "เพื่อให้ได้ร่างขอบเขตของงานหรือรายละเอียดคุณลักษณะเฉพาะของพัสดุดังกล่าว รวมทั้งกำหนดหลักเกณฑ์การพิจารณาคัดเลือกข้อเสนอ เพื่อใช้ในการจัดซื้อ/จัดจ้าง ตามระเบียบกระทรวงการคลังว่าด้วยการจัดซื้อจัดจ้างและการบริหารพัสดุภาครัฐ พ.ศ. 2560 ข้อ 21 วรรคหนึ่ง และมติคณะรัฐมนตรีและหลักเกณฑ์ที่เกี่ยวข้อง จึงขออนุมัติแต่งตั้งคณะกรรมการหรือผู้กำหนด หรือบุคคลใดบุคคลหนึ่ง ในการจัดทำร่างขอบเขตของงานหรือรายละเอียดคุณลักษณะเฉพาะของพัสดุที่จะซื้อ รวมทั้งกำหนดหลักเกณฑ์การพิจารณาคัดเลือกข้อเสนอ ตามรายชื่อดังนี้", first_line=True)
-    _paragraph(doc, "\t1.\t\t\tนางสาวนลินี เครือทิวา\t\t\t\tตำแหน่ง\tเภสัชกรชำนาญการ")
+    # A raw tab-separated line ("\t1.\t\t\tชื่อ\t\t\t\tตำแหน่ง\tตำแหน่ง") only
+    # lines up by accident at default tab stops -- a name of a different
+    # length throws the whole row out of alignment. Use a borderless table
+    # instead, like the other name/position listings in this document, and
+    # pull the name from the government profile instead of hardcoding it.
+    specifier_name = (
+        purchase.government_profile.specifier_name
+        if purchase.government_profile
+        else "นางสาวนลินี เครือทิวา"
+    )
+    specifier_position = (
+        purchase.government_profile.specifier_position
+        if purchase.government_profile
+        else "เภสัชกรชำนาญการ"
+    )
+    name_table = doc.add_table(rows=1, cols=3)
+    name_table.autofit = False
+    name_widths = [Cm(1.0), Cm(8.0), Cm(7.0)]
+    for i, w in enumerate(name_widths):
+        name_table.columns[i].width = w
+        name_table.rows[0].cells[i].width = w
+    _set_cell_text(name_table.rows[0].cells[0], "1.")
+    _set_cell_text(name_table.rows[0].cells[1], specifier_name)
+    _set_cell_text(name_table.rows[0].cells[2], f"ตำแหน่ง {specifier_position}")
     _paragraph(doc, "")
     _paragraph(doc, "\t\tจึงเรียนมาเพื่อโปรดพิจารณาอนุมัติ")
     _paragraph(doc, "")
@@ -776,7 +799,14 @@ def _add_spec(doc, purchase):
     _paragraph(doc, "              (นายพิรุณ ปิตะหงษ์นันท์)")
     _paragraph(doc, "ผู้อำนวยการโรงพยาบาลสิงห์บุรี ปฏิบัติงานแทน")
     _paragraph(doc, "            ผู้ว่าราชการจังหวัดสิงห์บุรี")
-    
+
+    if not include_details:
+        # The "ทุกฟอร์มรวมไฟล์เดียว" export already has its own, better
+        # formatted item-by-item spec page (_add_spec_details, with a real
+        # table) later on -- skip this plain-text duplicate there so the
+        # same spec doesn't appear twice.
+        return
+
     doc.add_page_break()
     _paragraph(doc, "รายละเอียดคุณลักษณะเฉพาะ", WD_ALIGN_PARAGRAPH.CENTER, True, 20)
     _paragraph(doc, f"พัสดุจำนวน {len(purchase.lines)} รายการ")
@@ -786,7 +816,7 @@ def _add_spec(doc, purchase):
         _paragraph(doc, f"จำนวน {line.quantity:g} {line.unit.name}")
     _paragraph(doc, "")
     _paragraph(doc, "\t\t\t\t\tลงชื่อ ................................................ ผู้กำหนดรายละเอียด\n\t\t\t(................................................)", WD_ALIGN_PARAGRAPH.CENTER)
-    
+
 def _add_acceptance_receipt(doc, purchase):
     _paragraph(doc, "ใบตรวจรับการจัดซื้อ/จัดจ้าง", WD_ALIGN_PARAGRAPH.CENTER, True, 16)
     _paragraph(doc, f"\t\tวันที่ {format_thai_date_full(purchase.document_date)}", WD_ALIGN_PARAGRAPH.CENTER)
@@ -795,7 +825,7 @@ def _add_acceptance_receipt(doc, purchase):
         f"ตามใบสั่งซื้อ เลขที่ {purchase.po_number} ลงวันที่ {format_thai_date_full(purchase.document_date)} "
         f"โรงพยาบาลสิงห์บุรีได้ตกลงซื้อกับ {purchase.company.name} สำหรับโครงการซื้อพัสดุ "
         f"จำนวน {len(purchase.lines)} รายการ โดยวิธีเฉพาะเจาะจง เป็นจำนวนเงินทั้งสิ้น "
-        f"{purchase.total_amount:,.2f} บาท ({baht_text(purchase.total_amount)})",
+        f"{purchase.total_amount:,.0f} บาท ({baht_text(purchase.total_amount)})",
         first_line=True,
     )
     _paragraph(doc, "")
@@ -820,11 +850,11 @@ def _add_acceptance_receipt(doc, purchase):
     _paragraph(doc, "\t3. การเบิกจ่ายเงิน")
     if len(purchase.lines) == 1:
         line = purchase.lines[0]
-        _paragraph(doc, f"\tเบิกจ่ายเงิน เป็นจำนวนเงินทั้งสิ้น {line.amount:,.2f} บาท")
+        _paragraph(doc, f"\tเบิกจ่ายเงิน เป็นจำนวนเงินทั้งสิ้น {line.amount:,.0f} บาท")
     else:
         for line in purchase.lines:
             _paragraph(doc, f"\t- รายการที่ {line.line_no} {line.description}")
-            _paragraph(doc, f"\tเบิกจ่ายเงิน งวดที่ 1 เป็นจำนวนเงินทั้งสิ้น {line.amount:,.2f} บาท")
+            _paragraph(doc, f"\tเบิกจ่ายเงิน งวดที่ 1 เป็นจำนวนเงินทั้งสิ้น {line.amount:,.0f} บาท")
 
     _paragraph(doc, "")
     sig = doc.add_table(rows=3, cols=2)
@@ -896,8 +926,8 @@ def _add_procurement_pack(doc, purchase):
     _paragraph(doc, f"ด้วยโรงพยาบาลสิงห์บุรีมีความประสงค์จะซื้อ {subject} โดยวิธีเฉพาะเจาะจง ซึ่งมีรายละเอียดดังต่อไปนี้", first_line=True)
     _paragraph(doc, "๑. เหตุผลความจำเป็นที่ต้องซื้อ\n    ใช้ในการรักษาผู้ป่วย")
     _paragraph(doc, f"๒. รายละเอียดของพัสดุ\n    {subject}")
-    _paragraph(doc, f"๓. ราคากลางของพัสดุ เป็นเงิน {purchase.total_amount:,.2f} บาท")
-    _paragraph(doc, f"๔. วงเงินที่จะซื้อ {purchase.budget_source or 'เงินบำรุงโรงพยาบาลสิงห์บุรี'} จำนวน {purchase.total_amount:,.2f} บาท ({baht_text(purchase.total_amount)})")
+    _paragraph(doc, f"๓. ราคากลางของพัสดุ เป็นเงิน {purchase.total_amount:,.0f} บาท")
+    _paragraph(doc, f"๔. วงเงินที่จะซื้อ {purchase.budget_source or 'เงินบำรุงโรงพยาบาลสิงห์บุรี'} จำนวน {purchase.total_amount:,.0f} บาท ({baht_text(purchase.total_amount)})")
     _paragraph(doc, f"๕. กำหนดเวลาส่งมอบภายใน {purchase.delivery_days} วัน นับถัดจากวันลงนามในสัญญา")
     _paragraph(doc, "๖. ดำเนินการโดยวิธีเฉพาะเจาะจง")
     _paragraph(doc, "๗. หลักเกณฑ์การพิจารณาคัดเลือกข้อเสนอโดยใช้เกณฑ์ราคา")
@@ -917,7 +947,7 @@ def _add_procurement_pack(doc, purchase):
     headers = ["รายการพิจารณา", "รายชื่อผู้ยื่นข้อเสนอ", "ราคาที่เสนอ*", "ราคาที่ตกลงซื้อหรือจ้าง*"]
     for i, h in enumerate(headers):
         _set_cell_text(table.rows[0].cells[i], h, True, WD_ALIGN_PARAGRAPH.CENTER)
-    vals = [subject, purchase.company.name, f"{purchase.total_amount:,.2f}", f"{purchase.total_amount:,.2f}"]
+    vals = [subject, purchase.company.name, f"{purchase.total_amount:,.0f}", f"{purchase.total_amount:,.0f}"]
     for i, v in enumerate(vals):
         _set_cell_text(table.rows[1].cells[i], v, align=WD_ALIGN_PARAGRAPH.CENTER if i != 0 else WD_ALIGN_PARAGRAPH.LEFT)
     _paragraph(doc, "*ราคาที่เสนอและราคาที่ตกลงซื้อหรือจ้างเป็นราคารวมภาษีมูลค่าเพิ่ม ภาษีอื่น ค่าขนส่ง ค่าจดทะเบียน และค่าใช้จ่ายอื่นทั้งปวง", size=14)
@@ -931,7 +961,7 @@ def _add_procurement_pack(doc, purchase):
     _paragraph(doc, f"เรื่อง ประกาศผู้ชนะการเสนอราคา ซื้อ {subject}", WD_ALIGN_PARAGRAPH.CENTER, True, 18)
     _paragraph(doc, "โดยวิธีเฉพาะเจาะจง", WD_ALIGN_PARAGRAPH.CENTER, True, 18)
     _paragraph(doc, "-----------------------------------", WD_ALIGN_PARAGRAPH.CENTER)
-    _paragraph(doc, f"ตามที่โรงพยาบาลสิงห์บุรีได้มีโครงการซื้อ {subject} โดยวิธีเฉพาะเจาะจงนั้น ผู้ได้รับการคัดเลือก ได้แก่ {purchase.company.name} โดยเสนอราคาเป็นเงินทั้งสิ้น {purchase.total_amount:,.2f} บาท ({baht_text(purchase.total_amount)}) รวมภาษีมูลค่าเพิ่มและค่าใช้จ่ายอื่นทั้งปวง", first_line=True)
+    _paragraph(doc, f"ตามที่โรงพยาบาลสิงห์บุรีได้มีโครงการซื้อ {subject} โดยวิธีเฉพาะเจาะจงนั้น ผู้ได้รับการคัดเลือก ได้แก่ {purchase.company.name} โดยเสนอราคาเป็นเงินทั้งสิ้น {purchase.total_amount:,.0f} บาท ({baht_text(purchase.total_amount)}) รวมภาษีมูลค่าเพิ่มและค่าใช้จ่ายอื่นทั้งปวง", first_line=True)
     _paragraph(doc, f"ประกาศ ณ วันที่ {format_thai_date_full(purchase.document_date)}", WD_ALIGN_PARAGRAPH.CENTER)
     _paragraph(doc, "(นายพิรุณ ปิตะหงษ์นันท์)\nผู้อำนวยการโรงพยาบาลสิงห์บุรี ปฏิบัติราชการแทน\nผู้ว่าราชการจังหวัดสิงห์บุรี", WD_ALIGN_PARAGRAPH.CENTER)
 
@@ -1057,20 +1087,20 @@ def _fill_calculated_template_values(
     _replace_exact_xml_texts(
         doc,
         "คำนวนมา",
-        [f"{subtotal:,.2f}", f"{vat:,.2f}"],
+        [f"{subtotal:,.0f}", f"{vat:,.0f}"],
     )
     _replace_exact_xml_texts(
         doc,
         "คำนวณมา",
-        [f"{subtotal:,.2f}", f"{vat:,.2f}"],
+        [f"{subtotal:,.0f}", f"{vat:,.0f}"],
     )
 
     # ช่อง "คำนวนอัตโนมัติ" สองช่อง:
     # ช่องแรก = ยอดที่จัดหาครั้งนี้
     # ช่องที่สอง = ยอดคงเหลือ
     budget_values = [
-        f"{current_amount:,.2f}",
-        f"{remaining_amount:,.2f}",
+        f"{current_amount:,.0f}",
+        f"{remaining_amount:,.0f}",
     ]
     replaced = _replace_exact_xml_texts(
         doc,
@@ -1248,21 +1278,21 @@ def _apply_review_layout(doc, purchase, profile, company, thai_date, subtotal, v
                 if len(row.cells) >= 2:
                     _set_cell_text(
                         row.cells[-1],
-                        f"{subtotal:,.2f}",
+                        f"{subtotal:,.0f}",
                         align=WD_ALIGN_PARAGRAPH.RIGHT,
                         size=16,
                     )
             elif "ภาษีมูลค่าเพิ่ม" in row_text:
                 _set_cell_text(
                     row.cells[-1],
-                    f"{vat:,.2f}",
+                    f"{vat:,.0f}",
                     align=WD_ALIGN_PARAGRAPH.RIGHT,
                     size=16,
                 )
             elif "รวมเป็นเงินทั้งสิ้น" in row_text:
                 _set_cell_text(
                     row.cells[-1],
-                    f"{total:,.2f}",
+                    f"{total:,.0f}",
                     bold=True,
                     align=WD_ALIGN_PARAGRAPH.RIGHT,
                     size=16,
@@ -1448,10 +1478,10 @@ def _fill_budget_xml_block(doc, allocated, previously_used, current_amount, rema
 
         value_start = index + 4
         values = [
-            f"{allocated:,.2f}",
-            f"{previously_used:,.2f}",
-            f"{current_amount:,.2f}",
-            f"{remaining:,.2f}",
+            f"{allocated:,.0f}",
+            f"{previously_used:,.0f}",
+            f"{current_amount:,.0f}",
+            f"{remaining:,.0f}",
         ]
 
         for offset, output_value in enumerate(values):
@@ -1470,14 +1500,14 @@ def _fill_purchase_order_calculation_xml(doc, subtotal, vat, total):
             continue
 
         if index + 1 < len(paragraphs):
-            _set_xml_paragraph_text(paragraphs[index + 1], f"{subtotal:,.2f}", 16)
+            _set_xml_paragraph_text(paragraphs[index + 1], f"{subtotal:,.0f}", 16)
 
         for vat_index in range(index + 1, min(index + 8, len(paragraphs))):
             if texts[vat_index].strip() != "ภาษีมูลค่าเพิ่ม":
                 continue
 
             if vat_index + 1 < len(paragraphs):
-                _set_xml_paragraph_text(paragraphs[vat_index + 1], f"{vat:,.2f}", 16)
+                _set_xml_paragraph_text(paragraphs[vat_index + 1], f"{vat:,.0f}", 16)
 
             for total_index in range(vat_index + 1, min(vat_index + 8, len(paragraphs))):
                 if texts[total_index].strip() == "รวมเป็นเงินทั้งสิ้น":
@@ -1490,7 +1520,7 @@ def _fill_purchase_order_calculation_xml(doc, subtotal, vat, total):
                     if total_index + 1 < len(paragraphs):
                         _set_xml_paragraph_text(
                             paragraphs[total_index + 1],
-                            f"{total:,.2f}",
+                            f"{total:,.0f}",
                             16,
                         )
                     return
@@ -1614,7 +1644,7 @@ def _fix_original_po_product_row_xml(doc, purchase):
                     Decimal(normalized)
                     _set_xml_paragraph_text(
                         paragraphs[j],
-                        f"{line.unit_price:,.2f}",
+                        f"{line.unit_price:,.0f}",
                         16,
                     )
                     assigned_price = True
@@ -1627,7 +1657,7 @@ def _fix_original_po_product_row_xml(doc, purchase):
                     Decimal(normalized)
                     _set_xml_paragraph_text(
                         paragraphs[j],
-                        f"{line.amount:,.2f}",
+                        f"{line.amount:,.0f}",
                         16,
                     )
                     assigned_amount = True
@@ -1702,7 +1732,7 @@ def _fix_original_po_xml(
 
 def _fix_request_budget_amount_xml(doc, purchase):
     total = to_decimal(purchase.total_amount)
-    total_text = f"{total:,.2f}"
+    total_text = f"{total:,.0f}"
 
     for paragraph_element in _xml_paragraphs(doc):
         value = _xml_paragraph_text(paragraph_element)
@@ -2305,6 +2335,16 @@ def _build_procurement_pack(purchase):
     if recipient_suffix and approver_position_line1.endswith(recipient_suffix):
         approver_position_line1 = approver_position_line1[: -len(recipient_suffix)].rstrip()
 
+    # Same duplicate-suffix problem as approver_position above: the template
+    # already has its own literal "หัวหน้าเจ้าหน้าที่" line right after the
+    # chief's position, so if that role title was also typed into
+    # chief_position itself (e.g. via the master-data form), it renders
+    # twice in a row.
+    chief_position_line1 = (profile.chief_position or "").rstrip()
+    chief_role_suffix = "หัวหน้าเจ้าหน้าที่"
+    if chief_position_line1.endswith(chief_role_suffix):
+        chief_position_line1 = chief_position_line1[: -len(chief_role_suffix)].rstrip()
+
     replacements = [
         ("โรงพยาบาลสิงห์บุรี กลุ่มงานเภสัชกรรมโทร. ๐ ๓๖๕๒ ๒๕๐๘ ต่อ ๑๑๒๙", profile.department),
         ("โรงพยาบาลสิงห์บุรี กลุ่มงานเภสัชกรรม โทร. ๐ ๓๖๕๒ ๒๕๐๘ ต่อ ๑๑๒๙", profile.department),
@@ -2321,17 +2361,22 @@ def _build_procurement_pack(purchase):
             f"เรื่อง ประกาศผู้ชนะการเสนอราคา {procurement_label}",
         ),
         ("เวชภัณฑ์มิใช่ยา จำนวน 1 รายการ", procurement_label),
+        # The "๑. อนุมัติให้ดำเนินการ..." line in the master uses a
+        # non-breaking space before "จำนวน" (nbsp + space) instead of a
+        # plain space, so the pattern above never matches it and it keeps
+        # showing "1" regardless of the purchase's real item count.
+        ("เวชภัณฑ์มิใช่ยา\xa0 จำนวน 1 รายการ", procurement_label),
 
         ("บริษัท พี.เอ็น.โปรดักส์ นครสวรรค์ จำกัด", company.name),
         ("ขายส่ง,ขายปลีก,ให้บริการ", company.business_type or "-"),
 
         # เรียงจากยาว/เจาะจงที่สุดไปสั้นที่สุดเสมอ เพราะ "-29,010.00" มี "10.00" เป็น
         # substring อยู่ข้างใน ถ้าแทน "10.00" ก่อนจะไปกิน "-29,010.00" ให้เพี้ยน
-        ("-29,010.00", f"{budget_remaining:,.2f}"),
-        ("30,000.00", f"{total:,.2f}"),
+        ("-29,010.00", f"{budget_remaining:,.0f}"),
+        ("30,000.00", f"{total:,.0f}"),
         ("สามหมื่นบาทถ้วน", baht_text(total)),
-        ("1,000.00", f"{budget_allocated:,.2f}"),
-        ("10.00", f"{budget_used:,.2f}"),
+        ("1,000.00", f"{budget_allocated:,.0f}"),
+        ("10.00", f"{budget_used:,.0f}"),
 
         ("นางสาวกัญญพัชร ธนกิจการค้า", profile.inspector1_name),
         ("นางสาวชุลีพร สุขมี", profile.inspector2_name),
@@ -2342,7 +2387,7 @@ def _build_procurement_pack(purchase):
 
         ("นางพิณนภา ศริพันธุ์", profile.officer_name),
         ("นายชัชวาลย์ บุญญฤทธิ์", profile.chief_name),
-        ("เภสัชกรชำนาญการพิเศษ", profile.chief_position),
+        ("เภสัชกรชำนาญการพิเศษ", chief_position_line1),
         ("นายพิรุณ\xa0 ปิตะหงษ์นันท์", profile.approver_name),
         ("นายพิรุณ ปิตะหงษ์นันท์", profile.approver_name),
         ("ผู้อำนวยการโรงพยาบาลสิงห์บุรี ปฏิบัติราชการแทน", approver_position_line1),
@@ -2435,6 +2480,11 @@ def _build_exact_procurement_template(purchase):
         ("เวชภัณฑ์มิใช่ยา จำนวน 2 รายการ", procurement_label),
         ("เวชภัณฑ์มิใช่ยา จำนวน2 รายการ", procurement_label),
         ("เวชภัณฑ์มิใช่ยา จำนวน 1 รายการ", procurement_label),
+        # The "๑. อนุมัติให้ดำเนินการ..." line in the master uses a
+        # non-breaking space before "จำนวน" (nbsp + space) instead of a
+        # plain space, so the pattern above never matches it and it keeps
+        # showing "1" regardless of the purchase's real item count.
+        ("เวชภัณฑ์มิใช่ยา\xa0 จำนวน 1 รายการ", procurement_label),
         ("เวชภัณฑ์มิใช่ยา จำวน 1 รายการ", procurement_label),
 
         ("บริษัท พี.เอ็น.โปรดักส์ นครสวรรค์ จำกัด", company.name),
@@ -2458,16 +2508,16 @@ def _build_exact_procurement_template(purchase):
         ("69079275357", purchase.project_number or "........................"),
         ("690714258286", purchase.contract_control_number or "........................"),
 
-        ("30,000.00", f"{total:,.2f}"),
+        ("30,000.00", f"{total:,.0f}"),
         ("หนึ่งหมื่นสี่พันบาทถ้วน", baht_text(total)),
-        ("14,000.00", f"{total:,.2f}"),
-        ("30000", f"{total:,.2f}"),
+        ("14,000.00", f"{total:,.0f}"),
+        ("30000", f"{total:,.0f}"),
         ("สามหมื่นบาทถ้วน", baht_text(total)),
-        ("28,037.38", f"{subtotal:,.2f}"),
-        ("1,962.62", f"{vat:,.2f}"),
+        ("28,037.38", f"{subtotal:,.0f}"),
+        ("1,962.62", f"{vat:,.0f}"),
 
-        ("1,000.00", f"{budget_allocated:,.2f}"),
-        ("1000.00", f"{budget_allocated:,.2f}"),
+        ("1,000.00", f"{budget_allocated:,.0f}"),
+        ("1000.00", f"{budget_allocated:,.0f}"),
 
         ("ใช้ในการรักษาผู้ป่วย", purchase.necessity_reason or "ใช้ในการรักษาผู้ป่วย"),
         (
@@ -2525,8 +2575,8 @@ def _build_exact_procurement_template(purchase):
                     str(index + 1),
                     line.description if line else "",
                     f"{line.quantity:g} {line.unit.name}" if line else "",
-                    f"{line.unit_price:,.2f}" if line else "",
-                    f"{line.amount:,.2f}" if line else "",
+                    f"{line.unit_price:,.0f}" if line else "",
+                    f"{line.amount:,.0f}" if line else "",
                 ]
             else:
                 values = [
@@ -2534,8 +2584,8 @@ def _build_exact_procurement_template(purchase):
                     line.description if line else "",
                     f"{line.quantity:g}" if line else "",
                     line.unit.name if line else "",
-                    f"{line.unit_price:,.2f}" if line else "",
-                    f"{line.amount:,.2f}" if line else "",
+                    f"{line.unit_price:,.0f}" if line else "",
+                    f"{line.amount:,.0f}" if line else "",
                 ]
 
             for column_index, value in enumerate(values):
@@ -2546,7 +2596,7 @@ def _build_exact_procurement_template(purchase):
         for row_index, row in enumerate(table.rows):
             row_text = " ".join(cell.text for cell in row.cells)
             if "รวมเป็นเงินทั้งสิ้น" in row_text:
-                _set_table_value(table, row_index, len(table.columns) - 1, f"{total:,.2f}", WD_ALIGN_PARAGRAPH.RIGHT)
+                _set_table_value(table, row_index, len(table.columns) - 1, f"{total:,.0f}", WD_ALIGN_PARAGRAPH.RIGHT)
                 if len(table.columns) >= 5:
                     _set_table_value(table, row_index, 1, f"({baht_text(total)})", WD_ALIGN_PARAGRAPH.CENTER)
 
@@ -2586,7 +2636,7 @@ def _build_exact_procurement_template(purchase):
                     budget_table,
                     1,
                     column_index,
-                    f"{value:,.2f}",
+                    f"{value:,.0f}",
                     WD_ALIGN_PARAGRAPH.CENTER,
                 )
 
@@ -3125,7 +3175,7 @@ def _add_final_spec_excel_page(doc, purchase):
 
         _center_cell_text(
             budget_table.rows[1].cells[i],
-            f"{budget_values[i]:,.2f}",
+            f"{budget_values[i]:,.0f}",
             bold=False,
             size=13,
         )
@@ -3216,8 +3266,8 @@ def _add_spec_details(doc, purchase):
             line.description, 
             f"{line.quantity:g}", 
             line.unit.name, 
-            f"{line.unit_price:,.2f}", 
-            f"{line.amount:,.2f}"
+            f"{line.unit_price:,.0f}", 
+            f"{line.amount:,.0f}"
         ]
         alignments = [
             WD_ALIGN_PARAGRAPH.CENTER,
@@ -3269,7 +3319,7 @@ def _add_spec_details(doc, purchase):
     total_cells[3].merge(total_cells[4])
     _set_cell_text(total_cells[3], "รวมเป็นเงินทั้งสิ้น", True, WD_ALIGN_PARAGRAPH.CENTER, size=16)
     
-    _set_cell_text(total_cells[5], f"{purchase.total_amount:,.2f}", True, WD_ALIGN_PARAGRAPH.CENTER, size=16)
+    _set_cell_text(total_cells[5], f"{purchase.total_amount:,.0f}", True, WD_ALIGN_PARAGRAPH.CENTER, size=16)
 
     # Footer text
     _paragraph(doc, "")
@@ -3373,8 +3423,9 @@ def _build_word(purchase, form_type):
         _add_purchase_order(doc, purchase)
         
         doc.add_page_break()
-        # 3. แบบกำหนด Spec (spec)
-        _add_spec(doc, purchase)
+        # 3. แบบกำหนด Spec (spec) -- the item detail listing comes later
+        # from _add_spec_details instead, so this page isn't duplicated.
+        _add_spec(doc, purchase, include_details=False)
         
         doc.add_page_break()
         # 7. แบบแสดงความบริสุทธิ์ใจ (integrity)
